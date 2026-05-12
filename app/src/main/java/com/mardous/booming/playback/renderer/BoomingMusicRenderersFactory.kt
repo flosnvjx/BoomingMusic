@@ -63,6 +63,11 @@ class BoomingMusicRenderersFactory(
         if (extensionRendererMode != EXTENSION_RENDERER_MODE_OFF) {
             out.add(FfmpegAudioRenderer(eventHandler, eventListener, audioSink))
         }
+
+        // Place our custom AAC renderer with DRC disabled before the
+        // default one so it is selected for AAC audio tracks.
+        out.add(BoomingAacAudioRenderer(eventHandler, eventListener, audioSink))
+
         super.buildAudioRenderers(
             context,
             extensionRendererMode,
