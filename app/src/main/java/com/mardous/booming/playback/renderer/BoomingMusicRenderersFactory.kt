@@ -60,9 +60,23 @@ class BoomingMusicRenderersFactory(
         eventListener: AudioRendererEventListener,
         out: ArrayList<Renderer>
     ) {
+        // (1) Our AAC renderer with disabled loudness normalisation.
+        out.add(
+            AacInitNoLoudNormAudioRenderer(
+                context,
+                getCodecAdapterFactory(),
+                mediaCodecSelector,
+                enableDecoderFallback,
+                eventHandler,
+                eventListener,
+                audioSink
+            )
+        )
+        // (2) Then the FFmpeg renderer (for ALAC and other codecs).
         if (extensionRendererMode != EXTENSION_RENDERER_MODE_OFF) {
             out.add(FfmpegAudioRenderer(eventHandler, eventListener, audioSink))
         }
+        // (3) Finally, the default renderers from the parent class.
         super.buildAudioRenderers(
             context,
             extensionRendererMode,
