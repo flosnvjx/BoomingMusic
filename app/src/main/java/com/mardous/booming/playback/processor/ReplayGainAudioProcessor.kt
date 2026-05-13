@@ -25,6 +25,16 @@ class ReplayGainAudioProcessor(
         @Synchronized get
         @Synchronized set
 
+    /**
+     * Returns `true` if the current track contains usable ReplayGain **gain** tags.
+     * Peak‑only tags (gain == 0, peak != 1) are **not** considered usable,
+     * because the ReplayGain processor does not apply volume adjustment in that case.
+     */
+    val hasReplayGain: Boolean
+        @Synchronized get() = currentGain?.let { rg ->
+            rg.trackGain != 0f || rg.albumGain != 0f
+        } ?: false
+
     private val gain: Float
         get() = currentGain?.let { rg ->
             var adjustDB: Float
@@ -106,4 +116,3 @@ class ReplayGainAudioProcessor(
         }
     }
 }
-
