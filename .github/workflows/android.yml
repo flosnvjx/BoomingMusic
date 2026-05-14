@@ -40,7 +40,7 @@ jobs:
       run: ./gradlew assemble
 
     - name: Upload PR artifacts
-      if: github.event_name == 'pull_request'
+      #if: github.event_name == 'pull_request'
       uses: actions/upload-artifact@v7
       with:
         name: release-apk
