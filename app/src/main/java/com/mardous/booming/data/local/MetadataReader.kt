@@ -180,6 +180,7 @@ class MetadataReader(uri: Uri, readPictures: Boolean = false) : KoinComponent {
         const val ENCODER = "ENCODER"
         const val COPYRIGHT = "COPYRIGHT"
         const val CATALOG_NUMBER = "CATALOGNUMBER"
+        const val ARRANGER = "ARRANGER"
 
         // Additional keys for record label fallback
         const val LABEL = "LABEL"

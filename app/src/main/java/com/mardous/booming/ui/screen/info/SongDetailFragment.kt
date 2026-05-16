@@ -295,6 +295,16 @@ class SongDetailFragment : BottomSheetDialogFragment() {
             )
 
             InfoView(
+                title = stringResource(R.string.lyricist),
+                content = songInfo.lyricist
+            )
+
+            InfoView(
+                title = stringResource(R.string.arranger),
+                content = songInfo.arranger
+            )
+
+            InfoView(
                 title = stringResource(R.string.catalog_number),
                 content = songInfo.catalogNumber
             )
