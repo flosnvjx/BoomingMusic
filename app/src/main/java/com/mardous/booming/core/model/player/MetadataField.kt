@@ -74,6 +74,7 @@ class MetadataField(
                                 else -> null
                             }
                             MetadataReader.GENRE -> metadataReader.genre()
+                            MetadataReader.COPYRIGHT -> metadataReader.publisher()  // use fallback
                             else -> metadataReader.first(it.content.key)
                         }
                     }
