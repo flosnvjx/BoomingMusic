@@ -133,6 +133,32 @@ class MetadataReader(uri: Uri, readPictures: Boolean = false) : KoinComponent {
         return this
     }
 
+    /**
+     * Returns the publisher (record label) for the audio file.
+     * Tries in order:
+     * 1. COPYRIGHT (ID3 TPUB, MP4 ©cpy)
+     * 2. LABEL (standard Vorbis/MP4 ©lab)
+     * 3. ORGANIZATION (some Vorbis/FLAC)
+     * 4. iTunes custom long tag "----:com.apple.iTunes:LABEL"
+     */
+    fun publisher(): String? {
+        val copyright = first(COPYRIGHT)
+        if (!copyright.isNullOrBlank()) return copyright
+
+        // Try standard LABEL key (covers Vorbis/FLAC LABEL and MP4 ©lab)
+        val label = first(LABEL)
+        if (!label.isNullOrBlank()) return label
+
+        val organization = first(ORGANIZATION)
+        if (!organization.isNullOrBlank()) return organization
+
+        // Finally, attempt to read the custom iTunes long tag
+        val itunesLabel = first(ITUNES_LABEL)
+        if (!itunesLabel.isNullOrBlank()) return itunesLabel
+
+        return null
+    }
+
     companion object {
         private val DEFAULT_DELIMITERS = arrayOf("/", ";")
 
@@ -153,5 +179,10 @@ class MetadataReader(uri: Uri, readPictures: Boolean = false) : KoinComponent {
         const val COMMENT = "COMMENT"
         const val ENCODER = "ENCODER"
         const val COPYRIGHT = "COPYRIGHT"
+
+        // Additional keys for record label fallback
+        const val LABEL = "LABEL"
+        const val ORGANIZATION = "ORGANIZATION"
+        const val ITUNES_LABEL = "----:com.apple.iTunes:LABEL"
     }
 }
