@@ -37,6 +37,7 @@ data class SongInfo(
     val composer: String? = null,
     val conductor: String? = null,
     val publisher: String? = null,
+    val catalogNumber: String? = null,
     val genre: String? = null,
     val replayGain: String? = null,
     val comment: String? = null
@@ -44,7 +45,7 @@ data class SongInfo(
     val isMissingMetadata: Boolean = album.isNullOrEmpty() && albumArtist.isNullOrEmpty() &&
             albumYear.isNullOrEmpty() && trackNumber.isNullOrEmpty() && discNumber.isNullOrEmpty() &&
             composer.isNullOrEmpty() && conductor.isNullOrEmpty() && publisher.isNullOrEmpty() &&
-            genre.isNullOrEmpty()
+            catalogNumber.isNullOrEmpty() && genre.isNullOrEmpty()
 
     companion object {
         val Empty = SongInfo()

@@ -121,6 +121,7 @@ class InfoViewModel(private val repository: Repository) : ViewModel() {
                 val composer = metadataReader.merge(MetadataReader.COMPOSER)
                 val conductor = metadataReader.merge(MetadataReader.PRODUCER)
                 val publisher = metadataReader.publisher()  // use fallback
+                val catalogNumber = metadataReader.first(MetadataReader.CATALOG_NUMBER)
                 val genre = metadataReader.merge(MetadataReader.GENRE)
                 val comment = metadataReader.value(MetadataReader.COMMENT)
 
@@ -143,6 +144,7 @@ class InfoViewModel(private val repository: Repository) : ViewModel() {
                     composer = composer,
                     conductor = conductor,
                     publisher = publisher,
+                    catalogNumber = catalogNumber,
                     genre = genre,
                     replayGain = replayGain,
                     comment = comment
