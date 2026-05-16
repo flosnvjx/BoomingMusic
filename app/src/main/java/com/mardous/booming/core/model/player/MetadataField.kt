@@ -50,6 +50,8 @@ class MetadataField(
         Conductor(R.string.conductor, MetadataReader.PRODUCER),
         Publisher(R.string.publisher, MetadataReader.COPYRIGHT),
         CatalogNumber(R.string.catalog_number, MetadataReader.CATALOG_NUMBER),
+        Lyricist(R.string.lyricist, MetadataReader.LYRICIST),
+        Arranger(R.string.arranger, MetadataReader.ARRANGER),
         Format(R.string.label_file_format, null),
         Bitrate(R.string.label_bit_rate, null),
         SampleRate(R.string.label_sampling_rate, null);
