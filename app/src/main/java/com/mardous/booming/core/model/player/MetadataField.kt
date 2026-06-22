@@ -52,6 +52,8 @@ class MetadataField(
         CatalogNumber(R.string.catalog_number, MetadataReader.CATALOG_NUMBER),
         Lyricist(R.string.lyricist, MetadataReader.LYRICIST),
         Arranger(R.string.arranger, MetadataReader.ARRANGER),
+        TrackNumber(R.string.track, MetadataReader.TRACK_NUMBER),
+        DiscNumber(R.string.disc, MetadataReader.DISC_NUMBER),
         Format(R.string.label_file_format, null),
         Bitrate(R.string.label_bit_rate, null),
         SampleRate(R.string.label_sampling_rate, null);
