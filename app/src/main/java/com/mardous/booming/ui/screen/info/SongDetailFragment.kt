@@ -255,8 +255,13 @@ class SongDetailFragment : BottomSheetDialogFragment() {
             )
 
             InfoView(
-                title = stringResource(R.string.artist),
+                title = stringResource(R.string.album_artist),
                 content = songInfo.albumArtist
+            )
+
+            InfoView(
+                title = stringResource(R.string.artist),
+                content = songInfo.artist
             )
 
             InfoView(
