@@ -112,14 +112,12 @@ class InfoViewModel(private val repository: Repository) : ViewModel() {
                 // prepare to parse composed tracknumber field (e.g. AAC format tag)
                 val trackNumberRaw = metadataReader.value(MetadataReader.TRACK_NUMBER)
                 val trackTotalRaw = metadataReader.value(MetadataReader.TRACK_TOTAL)
-                val (trackNumber, trackTotal) = parseNumberAndTotal(trackNumberRaw, trackTotalRaw)
-                val trackNumberDisplay = formatNumberAndTotal(trackNumber, trackTotal)
+                val trackNumberDisplay = buildDisplayNumber(trackNumberRaw, trackTotalRaw)
 
                 // same for discnumber
                 val discNumberRaw = metadataReader.value(MetadataReader.DISC_NUMBER)
                 val discTotalRaw = metadataReader.value(MetadataReader.DISC_TOTAL)
-                val (discNumber, discTotal) = parseNumberAndTotal(discNumberRaw, discTotalRaw)
-                val discNumberDisplay = formatNumberAndTotal(discNumber, discTotal)
+                val discNumberDisplay = buildDisplayNumber(discNumberRaw, discTotalRaw)
 
                 val composer = metadataReader.merge(MetadataReader.COMPOSER)
                 val conductor = metadataReader.merge(MetadataReader.PRODUCER)
@@ -166,35 +164,38 @@ class InfoViewModel(private val repository: Repository) : ViewModel() {
         )
     }
 
-    private fun parseNumberAndTotal(raw: String?, totalRaw: String?): Pair<Int?, Int?> {
-        if (raw.isNullOrBlank()) return null to null
+    /**
+     * 构建显示字符串，保留原始文本（含前导零），仅当解析出的 number 和 total 都为 0 时返回 null 隐藏。
+     * - 如果 rawNumber 包含 '/'，直接返回 rawNumber（原始文本已包含总数）。
+     * - 否则，如果 rawTotal 不为空且解析后非零，返回 "rawNumber/rawTotal"。
+     * - 否则，返回 rawNumber。
+     * - 如果 rawNumber 为空或解析出 number 为 null，返回 null。
+     * - 如果 number == 0 且 total == 0，返回 null。
+     */
+    private fun buildDisplayNumber(rawNumber: String?, rawTotal: String?): String? {
+        if (rawNumber.isNullOrBlank()) return null
 
-        val slashIndex = raw.indexOf('/')
-        if (slashIndex > 0) {
-            val numberPart = raw.substring(0, slashIndex).trim()
-            val totalPart = raw.substring(slashIndex + 1).trim()
-            val number = numberPart.toIntOrNull()
-            val total = totalPart.toIntOrNull()
-            if (number != null) {
-                return number to (total ?: totalRaw?.toIntOrNull())
-            }
+        if (rawNumber.contains('/')) {
+            // 仍需检查是否应隐藏：解析两边数字，若都为0则隐藏
+            val parts = rawNumber.split('/')
+            val num = parts.getOrNull(0)?.toIntOrNull()
+            val den = parts.getOrNull(1)?.toIntOrNull()
+            if (num == 0 && den == 0) return null
+            return rawNumber
         }
 
-        val number = raw.toIntOrNull()
-        if (number != null) {
-            return number to totalRaw?.toIntOrNull()
-        }
-
-        return null to null
-    }
-
-    private fun formatNumberAndTotal(number: Int?, total: Int?): String? {
+        val number = rawNumber.toIntOrNull()
         if (number == null) return null
+
+        val total = rawTotal?.toIntOrNull()
+
         if (number == 0 && total == 0) return null
-        if (total == null || total == 0) {
-            return number.toString().padStart(2, '0')
+
+        return if (total != null && total != 0) {
+            "$rawNumber/$rawTotal"
+        } else {
+            rawNumber
         }
-        return "%02d/%02d".format(number, total)
     }
 
     private fun cleanComment(raw: String?): String? {
