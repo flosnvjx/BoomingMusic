@@ -109,18 +109,21 @@ class InfoViewModel(private val repository: Repository) : ViewModel() {
                 val artist = metadataReader.merge(MetadataReader.ARTIST)
                 val albumArtist = metadataReader.first(MetadataReader.ALBUM_ARTIST)
 
-                val trackNumber = getNumberAndTotal(
-                    metadataReader.value(MetadataReader.TRACK_NUMBER),
-                    metadataReader.value(MetadataReader.TRACK_TOTAL)
-                )
-                val discNumber = getNumberAndTotal(
-                    metadataReader.value(MetadataReader.DISC_NUMBER),
-                    metadataReader.value(MetadataReader.DISC_TOTAL)
-                )
+                // prepare to parse composed tracknumber field (e.g. AAC format tag)
+                val trackNumberRaw = metadataReader.value(MetadataReader.TRACK_NUMBER)
+                val trackTotalRaw = metadataReader.value(MetadataReader.TRACK_TOTAL)
+                val (trackNumber, trackTotal) = parseNumberAndTotal(trackNumberRaw, trackTotalRaw)
+                val trackNumberDisplay = formatNumberAndTotal(trackNumber, trackTotal)
+
+                // same for discnumber
+                val discNumberRaw = metadataReader.value(MetadataReader.DISC_NUMBER)
+                val discTotalRaw = metadataReader.value(MetadataReader.DISC_TOTAL)
+                val (discNumber, discTotal) = parseNumberAndTotal(discNumberRaw, discTotalRaw)
+                val discNumberDisplay = formatNumberAndTotal(discNumber, discTotal)
 
                 val composer = metadataReader.merge(MetadataReader.COMPOSER)
                 val conductor = metadataReader.merge(MetadataReader.PRODUCER)
-                val publisher = metadataReader.publisher()  // use fallback
+                val publisher = metadataReader.publisher()
                 val catalogNumber = metadataReader.first(MetadataReader.CATALOG_NUMBER)
                 val lyricist = metadataReader.merge(MetadataReader.LYRICIST)
                 val arranger = metadataReader.merge(MetadataReader.ARRANGER)
@@ -141,8 +144,8 @@ class InfoViewModel(private val repository: Repository) : ViewModel() {
                     artist = artist,
                     albumArtist = albumArtist,
                     albumYear = year,
-                    trackNumber = trackNumber,
-                    discNumber = discNumber,
+                    trackNumber = trackNumberDisplay,
+                    discNumber = discNumberDisplay,
                     composer = composer,
                     conductor = conductor,
                     publisher = publisher,
@@ -163,14 +166,35 @@ class InfoViewModel(private val repository: Repository) : ViewModel() {
         )
     }
 
-    private fun getNumberAndTotal(number: String?, total: String?): String? {
-        val numberInt = number?.toIntOrNull() ?: return null
-        val totalInt = total?.toIntOrNull()
-        return if (totalInt == null || totalInt == 0) {
-            numberInt.toString().padStart(2, '0')
-        } else {
-            "%02d/%02d".format(numberInt, totalInt)
+    private fun parseNumberAndTotal(raw: String?, totalRaw: String?): Pair<Int?, Int?> {
+        if (raw.isNullOrBlank()) return null to null
+
+        val slashIndex = raw.indexOf('/')
+        if (slashIndex > 0) {
+            val numberPart = raw.substring(0, slashIndex).trim()
+            val totalPart = raw.substring(slashIndex + 1).trim()
+            val number = numberPart.toIntOrNull()
+            val total = totalPart.toIntOrNull()
+            if (number != null) {
+                return number to (total ?: totalRaw?.toIntOrNull())
+            }
         }
+
+        val number = raw.toIntOrNull()
+        if (number != null) {
+            return number to totalRaw?.toIntOrNull()
+        }
+
+        return null to null
+    }
+
+    private fun formatNumberAndTotal(number: Int?, total: Int?): String? {
+        if (number == null) return null
+        if (number == 0 && total == 0) return null
+        if (total == null || total == 0) {
+            return number.toString().padStart(2, '0')
+        }
+        return "%02d/%02d".format(number, total)
     }
 
     private fun getAudioHeader(header: AudioHeader?, metadataReader: MetadataReader): AudioHeaderInfo {
