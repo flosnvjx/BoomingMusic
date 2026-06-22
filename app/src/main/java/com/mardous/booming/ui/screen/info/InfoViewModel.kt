@@ -128,7 +128,7 @@ class InfoViewModel(private val repository: Repository) : ViewModel() {
                 val lyricist = metadataReader.merge(MetadataReader.LYRICIST)
                 val arranger = metadataReader.merge(MetadataReader.ARRANGER)
                 val genre = metadataReader.merge(MetadataReader.GENRE)
-                val comment = metadataReader.value(MetadataReader.COMMENT)
+                val comment = cleanComment(metadataReader.value(MetadataReader.COMMENT))
 
                 SongInfo(
                     playCount = playCount,
@@ -195,6 +195,16 @@ class InfoViewModel(private val repository: Repository) : ViewModel() {
             return number.toString().padStart(2, '0')
         }
         return "%02d/%02d".format(number, total)
+    }
+
+    private fun cleanComment(raw: String?): String? {
+        if (raw.isNullOrBlank()) return null
+        val lines = raw.lines()
+        val trimmedLines = lines.map { it.trimEnd() }
+        val start = trimmedLines.indexOfFirst { it.isNotBlank() }
+        if (start == -1) return null
+        val end = trimmedLines.indexOfLast { it.isNotBlank() }
+        return trimmedLines.subList(start, end + 1).joinToString("\n")
     }
 
     private fun getAudioHeader(header: AudioHeader?, metadataReader: MetadataReader): AudioHeaderInfo {
