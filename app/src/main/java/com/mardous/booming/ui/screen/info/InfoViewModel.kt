@@ -109,6 +109,8 @@ class InfoViewModel(private val repository: Repository) : ViewModel() {
                 val artist = metadataReader.merge(MetadataReader.ARTIST)
                 val albumArtist = metadataReader.first(MetadataReader.ALBUM_ARTIST)
 
+                val albumYear = metadataReader.value(MetadataReader.YEAR)
+
                 // prepare to parse composed tracknumber field (e.g. AAC format tag)
                 val trackNumberRaw = metadataReader.value(MetadataReader.TRACK_NUMBER)
                 val trackTotalRaw = metadataReader.value(MetadataReader.TRACK_TOTAL)
@@ -141,7 +143,7 @@ class InfoViewModel(private val repository: Repository) : ViewModel() {
                     album = album,
                     artist = artist,
                     albumArtist = albumArtist,
-                    albumYear = year,
+                    albumYear = albumYear,
                     trackNumber = trackNumberDisplay,
                     discNumber = discNumberDisplay,
                     composer = composer,
