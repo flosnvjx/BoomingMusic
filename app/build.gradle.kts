@@ -96,9 +96,10 @@ android {
         create("normal") {
             dimension = "version"
         }
-        create("fdroid") {
-            dimension = "version"
-        }
+        // fdroid flavor is disabled; only normal will be built
+        // create("fdroid") {
+        //     dimension = "version"
+        // }
     }
 
     val signingProperties = getProperties("keystore.properties")
@@ -138,8 +139,8 @@ android {
         abi {
             isEnable = true
             reset()
-            include("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
-            isUniversalApk = true
+            include("arm64-v8a")   // no "armeabi-v7a", only ARMv8
+            isUniversalApk = false
         }
     }
     packaging {
