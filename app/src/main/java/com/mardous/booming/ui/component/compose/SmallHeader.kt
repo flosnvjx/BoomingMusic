@@ -25,7 +25,6 @@ fun SmallHeader(
     imageModel: Any? = null,
     imagePlaceholderIconRes: Int = R.drawable.ic_music_note_24dp,
     showIndeterminateIndicator: Boolean = false,
-    onTitleTruncated: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -43,19 +42,13 @@ fun SmallHeader(
             )
         }
         Column(modifier = Modifier.weight(1f)) {
-            // 使用 onTextLayout 检测是否溢出
             Text(
                 text = title,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-                onTextLayout = { layoutResult ->
-                    val isOverflown = layoutResult.hasVisualOverflow
-                    onTitleTruncated(isOverflown)
-                },
-                modifier = Modifier.fillMaxWidth()
+                color = MaterialTheme.colorScheme.onSurface
             )
             if (!subtitle.isNullOrEmpty()) {
                 Text(

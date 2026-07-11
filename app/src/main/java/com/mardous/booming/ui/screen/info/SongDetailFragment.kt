@@ -45,9 +45,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -148,9 +145,6 @@ class SongDetailFragment : BottomSheetDialogFragment() {
             viewModel.refreshSongInfo(context, song)
         }
 
-        // 检测标题是否被截断
-        var isTitleTruncated by remember { mutableStateOf(false) }
-
         BottomSheetDialogSurface {
             Column(
                 modifier = Modifier
@@ -180,7 +174,6 @@ class SongDetailFragment : BottomSheetDialogFragment() {
                             },
                             imageModel = song,
                             showIndeterminateIndicator = uiState.isLoading,
-                            onTitleTruncated = { isTitleTruncated = it },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -226,11 +219,7 @@ class SongDetailFragment : BottomSheetDialogFragment() {
                             // Content sections
                             if (!uiState.info.isMissingMetadata) {
                                 item {
-                                    MetadataInfoSection(
-                                        songInfo = uiState.info,
-                                        showTitle = isTitleTruncated,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
+                                    MetadataInfoSection(uiState.info, Modifier.fillMaxWidth())
                                 }
                             }
                             item {
@@ -255,22 +244,11 @@ class SongDetailFragment : BottomSheetDialogFragment() {
     }
 
     @Composable
-    private fun MetadataInfoSection(
-        songInfo: SongInfo,
-        showTitle: Boolean,
-        modifier: Modifier = Modifier
-    ) {
+    private fun MetadataInfoSection(songInfo: SongInfo, modifier: Modifier = Modifier) {
         InfoSection(
             title = stringResource(R.string.metadata_label),
             modifier = modifier.fillMaxWidth()
         ) {
-            if (showTitle && !songInfo.title.isNullOrEmpty()) {
-                InfoView(
-                    title = stringResource(R.string.title),
-                    content = songInfo.title
-                )
-            }
-
             InfoView(
                 title = stringResource(R.string.album),
                 content = songInfo.album
