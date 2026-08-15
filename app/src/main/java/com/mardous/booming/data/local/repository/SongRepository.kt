@@ -44,6 +44,8 @@ import com.mardous.booming.extensions.utilities.mapIfValid
 import com.mardous.booming.extensions.utilities.takeOrDefault
 import com.mardous.booming.util.Preferences
 import okhttp3.internal.toLongOrDefault
+import java.util.Collections
+import java.util.LinkedHashMap
 
 interface SongRepository {
     fun songs(): List<Song>
@@ -63,6 +65,17 @@ class RealSongRepository(
     private val context: Context,
     private val inclExclDao: InclExclDao
 ) : SongRepository {
+
+    // External files (e.g. opened via ACTION_VIEW from a DocumentsProvider that MediaStore
+    // does not index) are resolved from their content URI. Resolution queries the provider
+    // and reads metadata, and queue generation re-resolves items on every media event, so
+    // results are cached per URI. Session-scoped, bounded LRU.
+    private val externalSongCache: MutableMap<String, Song> = Collections.synchronizedMap(
+        object : LinkedHashMap<String, Song>(32, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Song>): Boolean =
+                size > MAX_EXTERNAL_SONG_CACHE_SIZE
+        }
+    )
 
     override fun songs(): List<Song> {
         val songs = songs(makeSongCursor(null, null))
@@ -156,7 +169,9 @@ class RealSongRepository(
         if (mediaItems.isEmpty()) return (emptyList<Song>() to mediaItems)
 
         // Songs carried on the MediaItem tag (e.g. external files opened via ACTION_VIEW)
-        // are resolved directly and keep their position in the list.
+        // are resolved directly and keep their position in the list. MediaItems whose
+        // mediaId (or surviving localConfiguration.uri) is an external content/file URI are
+        // resolved the same way, since tags do not survive the controller->session hop.
         val resultSongs = mutableListOf<Song>()
         val remaining = mutableListOf<MediaItem>()
         for (item in mediaItems) {
@@ -164,7 +179,12 @@ class RealSongRepository(
             if (taggedSong != null) {
                 resultSongs.add(taggedSong)
             } else {
-                remaining.add(item)
+                val externalSongForItem = externalUriOf(item)?.let { externalSong(it) }
+                if (externalSongForItem != null) {
+                    resultSongs.add(externalSongForItem)
+                } else {
+                    remaining.add(item)
+                }
             }
         }
         if (remaining.isEmpty()) return resultSongs to emptyList()
@@ -195,12 +215,17 @@ class RealSongRepository(
         if (mediaItem != null) {
             var song = mediaItem.localConfiguration?.tag
             if (song == null || song !is Song) {
-                song = song(
-                    makeSongCursor(
-                        selection = "${AudioColumns._ID}=?",
-                        selectionValues = arrayOf(mediaItem.mediaId)
+                val externalUri = externalUriOf(mediaItem)
+                song = if (externalUri != null) {
+                    externalSong(externalUri) ?: Song.emptySong
+                } else {
+                    song(
+                        makeSongCursor(
+                            selection = "${AudioColumns._ID}=?",
+                            selectionValues = arrayOf(mediaItem.mediaId)
+                        )
                     )
-                )
+                }
             }
             return song
         }
@@ -328,6 +353,41 @@ class RealSongRepository(
     }
 
     /**
+     * Returns the external content/file URI carried by [mediaItem], if any: either its
+     * surviving [MediaItem.LocalConfiguration.uri] or its [MediaItem.mediaId] when the
+     * item was serialized across the controller->session boundary (where neither the tag
+     * nor the local configuration survive).
+     */
+    private fun externalUriOf(mediaItem: MediaItem): Uri? {
+        mediaItem.localConfiguration?.uri?.let { uri ->
+            if (isExternalUri(uri)) return uri
+        }
+        return mediaIdToExternalUri(mediaItem.mediaId)
+    }
+
+    private fun mediaIdToExternalUri(mediaId: String): Uri? {
+        val uri = runCatching { Uri.parse(mediaId) }.getOrNull() ?: return null
+        return uri.takeIf { isExternalUri(it) }
+    }
+
+    private fun isExternalUri(uri: Uri): Boolean = when (uri.scheme) {
+        ContentResolver.SCHEME_FILE -> true
+        ContentResolver.SCHEME_CONTENT -> uri.authority != MediaStore.AUTHORITY
+        else -> false
+    }
+
+    /** Returns the external [Song] for [uri], building and caching it on first use. */
+    private fun externalSong(uri: Uri): Song? {
+        val key = uri.toString()
+        externalSongCache[key]?.let { cached -> return cached.takeIf { it != Song.emptySong } }
+        val song = externalSongFromUri(uri)
+        // Cache both successes and failures: queue generation re-resolves items on every
+        // media event, and a URI that cannot be inspected will not recover mid-session.
+        externalSongCache[key] = song
+        return song.takeIf { it != Song.emptySong }
+    }
+
+    /**
      * Builds a playable [Song] for a file that MediaStore does not index (e.g. an audio
      * file opened through a DocumentsProvider). The raw content URI is streamed directly
      * by the player; metadata is taken from [OpenableColumns.DISPLAY_NAME] and, when
@@ -430,6 +490,8 @@ class RealSongRepository(
 
     companion object {
         private val TAG = RealSongRepository::class.java.simpleName
+
+        private const val MAX_EXTERNAL_SONG_CACHE_SIZE = 64
 
         const val BASE_SELECTION = "${AudioColumns.TITLE} != '' AND ${AudioColumns.IS_MUSIC} = 1"
         const val SEARCH_SELECTION = "${AudioColumns.TITLE} LIKE ? OR ${AudioColumns.ARTIST} LIKE ? OR ${AudioColumns.ALBUM} LIKE ?"

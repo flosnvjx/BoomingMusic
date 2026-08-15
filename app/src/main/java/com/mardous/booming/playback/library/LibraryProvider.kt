@@ -1,6 +1,9 @@
 package com.mardous.booming.playback.library
 
+import android.content.ContentResolver
 import android.content.Context
+import android.net.Uri
+import android.provider.MediaStore
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import com.mardous.booming.R
@@ -42,20 +45,41 @@ class LibraryProvider(private val repository: Repository) {
             resolvedMediaItems.addAll(songs.toMediaItems())
         }
         if (missingMediaItems.isNotEmpty()) {
-            val complexMediaItems = if (tryToResolveComplexPaths) {
-                missingMediaItems.filter { item -> item.mediaId.contains(":") }
-            } else {
-                emptyList()
+            // External files (e.g. opened via ACTION_VIEW from a DocumentsProvider that
+            // MediaStore does not index) are carried by their content URI mediaId. Rebuild
+            // a playable MediaItem from the URI before the auto/AAOS path handling, which
+            // cannot resolve them.
+            val externalItems = missingMediaItems.filter { item ->
+                runCatching { Uri.parse(item.mediaId) }.getOrNull()?.let { uri ->
+                    uri.scheme == ContentResolver.SCHEME_FILE ||
+                        (uri.scheme == ContentResolver.SCHEME_CONTENT &&
+                            uri.authority != MediaStore.AUTHORITY)
+                } == true
             }
-            if (complexMediaItems.isNotEmpty()) {
-                getMediaItemsForAAOSPlayback(complexMediaItems)?.first?.forEach {
-                    resolvedMediaItems.add(it)
+            externalItems.forEach { item ->
+                val song = repository.songByMediaItem(item)
+                if (song != Song.emptySong && song.externalUri != null) {
+                    resolvedMediaItems.add(song.toMediaItem())
                 }
-            } else {
-                missingMediaItems.forEach {
-                    getPlayableSongs(it.mediaId).let { playableSongs ->
-                        if (playableSongs.isNotEmpty()) {
-                            resolvedMediaItems.addAll(playableSongs.toMediaItems())
+            }
+
+            val remainingMissing = missingMediaItems - externalItems.toSet()
+            if (remainingMissing.isNotEmpty()) {
+                val complexMediaItems = if (tryToResolveComplexPaths) {
+                    remainingMissing.filter { item -> item.mediaId.contains(":") }
+                } else {
+                    emptyList()
+                }
+                if (complexMediaItems.isNotEmpty()) {
+                    getMediaItemsForAAOSPlayback(complexMediaItems)?.first?.forEach {
+                        resolvedMediaItems.add(it)
+                    }
+                } else {
+                    remainingMissing.forEach {
+                        getPlayableSongs(it.mediaId).let { playableSongs ->
+                            if (playableSongs.isNotEmpty()) {
+                                resolvedMediaItems.addAll(playableSongs.toMediaItems())
+                            }
                         }
                     }
                 }
