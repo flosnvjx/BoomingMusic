@@ -178,6 +178,10 @@ open class SongAdapter(
                 // Menu.findItem recurses into submenus, so go-to-artist/genre are reachable here.
                 menu.findItem(R.id.action_go_to_artist)?.isVisible = false
                 menu.findItem(R.id.action_go_to_genre)?.isVisible = false
+                // Session-only external files (not imported) have no stored album page.
+                if (song.albumId == -1L) {
+                    menu.findItem(R.id.action_go_to_album)?.isVisible = false
+                }
             } else {
                 menu.findItem(R.id.action_remove_from_library)?.isVisible = false
             }

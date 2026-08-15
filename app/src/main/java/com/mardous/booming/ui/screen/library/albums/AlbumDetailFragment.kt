@@ -60,6 +60,7 @@ import com.mardous.booming.extensions.resources.removeHorizontalMarginIfRequired
 import com.mardous.booming.extensions.resources.setupStatusBarForeground
 import com.mardous.booming.extensions.resources.surfaceColor
 import com.mardous.booming.extensions.setSupportActionBar
+import com.mardous.booming.extensions.showToast
 import com.mardous.booming.extensions.utilities.buildInfoString
 import com.mardous.booming.playback.shuffle.OpenShuffleMode
 import com.mardous.booming.ui.IAlbumCallback
@@ -231,6 +232,10 @@ class AlbumDetailFragment : AbsMainActivityFragment(R.layout.fragment_album_deta
 
     private fun showAlbum(album: Album) {
         if (album == Album.empty || album.songs.isEmpty()) {
+            // Empty/not-found album (e.g. an id that no longer resolves, or a session-only
+            // external file's synthetic album that was never imported): explain instead of
+            // silently popping back, which looked like a flicker/tab-flip.
+            showToast(R.string.album_not_found)
             findNavController().navigateUp()
             return
         }

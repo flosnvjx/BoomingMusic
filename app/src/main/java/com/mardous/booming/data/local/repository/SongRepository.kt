@@ -66,7 +66,8 @@ interface SongRepository {
 @SuppressLint("InlinedApi")
 class RealSongRepository(
     private val context: Context,
-    private val inclExclDao: InclExclDao
+    private val inclExclDao: InclExclDao,
+    private val externalSongRepository: ExternalSongRepository
 ) : SongRepository {
 
     // External files (e.g. opened via ACTION_VIEW from a DocumentsProvider that MediaStore
@@ -182,7 +183,13 @@ class RealSongRepository(
             if (taggedSong != null) {
                 resultSongs.add(taggedSong)
             } else {
-                val externalSongForItem = externalUriOf(item)?.let { externalSong(it) }
+                val externalUriForItem = externalUriOf(item)
+                val externalSongForItem = externalUriForItem?.let { uri ->
+                    // Imported external songs are stored in Room with their real (synthetic)
+                    // album identity — prefer that over the session probe so that album
+                    // navigation (go-to-album) resolves the correct album page.
+                    externalSongRepository.songByUri(uri.toString()) ?: externalSong(uri)
+                }
                 if (externalSongForItem != null) {
                     resultSongs.add(externalSongForItem)
                 } else {
@@ -220,7 +227,10 @@ class RealSongRepository(
             if (song == null || song !is Song) {
                 val externalUri = externalUriOf(mediaItem)
                 song = if (externalUri != null) {
-                    externalSong(externalUri) ?: Song.emptySong
+                    // Prefer the Room-imported song (real album identity) over the session probe.
+                    externalSongRepository.songByUri(externalUri.toString())
+                        ?: externalSong(externalUri)
+                        ?: Song.emptySong
                 } else {
                     song(
                         makeSongCursor(

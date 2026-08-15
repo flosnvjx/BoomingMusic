@@ -204,7 +204,14 @@ abstract class AbsPlayerFragment(@LayoutRes layoutRes: Int) : Fragment(layoutRes
     }
 
     @CallSuper
-    protected open fun onMenuInflated(menu: Menu) {}
+    protected open fun onMenuInflated(menu: Menu) {
+        val song = playerViewModel.currentSong
+        // Session-only external files (opened via ACTION_VIEW, not imported) have no stored
+        // album — hide go-to-album instead of navigating to a dead/empty album page.
+        if (song.externalUri != null && song.albumId == -1L) {
+            menu.findItem(R.id.action_go_to_album)?.isVisible = false
+        }
+    }
 
     protected fun Menu.setShowAsAction(itemId: Int, mode: Int = MenuItem.SHOW_AS_ACTION_IF_ROOM) {
         findItem(itemId)?.setShowAsAction(mode)
@@ -445,12 +452,15 @@ abstract class AbsPlayerFragment(@LayoutRes layoutRes: Int) : Fragment(layoutRes
     internal fun onQuickActionEvent(action: NowPlayingAction): Boolean {
         val currentSong = playerViewModel.currentSong
         // External songs are read-only (no MediaStore identity / writable file) and have
-        // no merged artist page.
+        // no merged artist page. Go-to-album is also unavailable for session-only external
+        // files (not imported into the library, so no album page exists for them).
+        val isSessionOnlyExternal = currentSong.externalUri != null && currentSong.albumId == -1L
         if (currentSong.externalUri != null &&
             (action == NowPlayingAction.TagEditor ||
                 action == NowPlayingAction.DeleteFromDevice ||
                 action == NowPlayingAction.SaveAlbumCover ||
-                action == NowPlayingAction.OpenArtist)
+                action == NowPlayingAction.OpenArtist ||
+                (action == NowPlayingAction.OpenAlbum && isSessionOnlyExternal))
         ) {
             showToast(R.string.external_song_read_only)
             return true

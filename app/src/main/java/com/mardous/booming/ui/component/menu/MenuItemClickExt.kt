@@ -106,6 +106,12 @@ fun Song.onSongMenu(
         }
 
         R.id.action_go_to_album -> {
+            // Session-only external files (not imported into the library) have no stored
+            // album page — block the action instead of navigating to a dead empty album.
+            if (this.externalUri != null && albumId == -1L) {
+                fragment.showToast(R.string.external_song_read_only)
+                return true
+            }
             val navController = fragment.findActivityNavController(R.id.fragment_container)
             navController.navigate(R.id.nav_album_detail, albumDetailArgs(this.albumId))
             true

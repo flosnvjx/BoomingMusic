@@ -209,7 +209,7 @@ private val dataModule = module {
     } bind Repository::class
 
     single {
-        RealSongRepository(context = get(), inclExclDao = get())
+        RealSongRepository(context = get(), inclExclDao = get(), externalSongRepository = get())
     } bind SongRepository::class
 
     single {
