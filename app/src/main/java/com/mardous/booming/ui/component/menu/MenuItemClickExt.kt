@@ -234,7 +234,8 @@ fun List<Song>.onSongsMenu(fragment: Fragment, menuItem: MenuItem): Boolean {
 fun Album.onAlbumMenu(fragment: Fragment, menuItem: MenuItem): Boolean {
     // External albums group imported songs; write actions operate on MediaStore.
     // Identify them by their songs (externalUri != null), not by id band — MediaStore
-    // album ids can legitimately be >= EXTERNAL_ID_BASE (large/restored media DBs).
+    // album ids live in the disjoint negative band, MediaStore ids are non-negative
+    // (large/restored media DBs included).
     val isExternalAlbum = songs.firstOrNull()?.externalUri != null
     if (isExternalAlbum && menuItem.itemId in EXTERNAL_ALBUM_READ_ONLY_ACTIONS) {
         fragment.showToast(R.string.external_song_read_only)

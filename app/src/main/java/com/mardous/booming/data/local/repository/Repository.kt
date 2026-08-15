@@ -304,11 +304,10 @@ class RealRepository(
     }
 
     override suspend fun albumById(albumId: Long): Album =
-        if (albumId >= EXTERNAL_ID_BASE) {
-            // External songs use synthetic album ids in this high band, but MediaStore album
-            // ids can legitimately land here too (large/restored media DBs). Only treat the id
-            // as external when the Room store actually has songs for it; otherwise fall back
-            // to MediaStore so genuine albums still resolve.
+        if (albumId <= -EXTERNAL_ID_BASE) {
+            // External songs use synthetic album ids in this reserved negative band,
+            // disjoint from MediaStore ids. Only treat the id as external when the Room
+            // store actually has songs for it; otherwise fall back to MediaStore.
             externalSongRepository.albumSongs(albumId).let { songs ->
                 if (songs.isEmpty()) {
                     albumRepository.album(albumId)

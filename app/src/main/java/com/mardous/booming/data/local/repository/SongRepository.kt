@@ -421,7 +421,10 @@ class RealSongRepository(
 
         val metadata = probeExternalMetadata(uri)
         Song(
-            id = uri.toString().hashCode().toLong(),
+            // Same synthetic derivation as the import path, so a session-only and an
+            // imported song for the same file share an identity (and stay in the
+            // negative band, disjoint from MediaStore ids).
+            id = externalSongId(uri.toString()),
             data = "",
             title = metadata?.title ?: fallbackTitle,
             trackNumber = metadata?.trackNumber ?: -1,

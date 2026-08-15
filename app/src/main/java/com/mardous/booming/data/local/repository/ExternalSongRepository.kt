@@ -30,17 +30,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Stable synthetic IDs for imported external songs, in a reserved high band that never
- * collides with MediaStore `_ID`s (small positive integers) or the -1/-2 sentinels
- * (`Song.emptySong`, `Artist.VARIOUS_ARTISTS_ID`). Derived from the persisted content
- * URI, so they survive restarts and are identical across re-imports.
+ * Stable synthetic IDs for imported external songs, in a reserved negative band
+ * `[-EXTERNAL_ID_BASE, -(EXTERNAL_ID_BASE + 2^31 - 1)]` that is guaranteed disjoint
+ * from MediaStore `_ID`s (non-negative, and on large/restored media DBs they can
+ * exceed any positive threshold) and from the -1/-2 sentinels (`Song.emptySong`,
+ * `Artist.VARIOUS_ARTISTS_ID`). Derived from the persisted content URI, so they
+ * survive restarts and are identical across re-imports.
  */
 const val EXTERNAL_ID_BASE = 1_000_000_000L
 
-fun externalSongId(uri: String): Long = EXTERNAL_ID_BASE + (uri.hashCode() and 0x7FFFFFFF)
+fun externalSongId(uri: String): Long = -(EXTERNAL_ID_BASE + (uri.hashCode() and 0x7FFFFFFF))
 
 fun externalAlbumId(album: String, albumArtist: String?): Long =
-    EXTERNAL_ID_BASE + ("$album\u0000${albumArtist.orEmpty()}".hashCode() and 0x7FFFFFFF)
+    -(EXTERNAL_ID_BASE + ("$album\u0000${albumArtist.orEmpty()}".hashCode() and 0x7FFFFFFF))
 
 interface ExternalSongRepository {
 

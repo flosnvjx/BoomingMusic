@@ -199,21 +199,27 @@ menu, `res/menu/menu_library.xml`). Because the picker grant is **persistable**
 (`takePersistableUriPermission`), imported songs survive restarts and behave like
 first-class library entries:
 
-- **Storage:** `ExternalSongEntity` (Room `external_songs` table, PK = uri, DB v6) —
-  `data/local/room/ExternalSongEntity.kt`, `ExternalSongDao`, migration
-  `MIGRATION_5_6` (`core/BoomingDatabase.kt`).
-- **Identities:** synthetic stable IDs in a reserved high band
-  (`EXTERNAL_ID_BASE` = 1e9 + hash, `data/local/repository/ExternalSongRepository.kt`)
-  — never collide with MediaStore `_ID`s or the -1/-2 sentinels; album ids derive from
-  `albumName|albumArtist` (matching MediaStore's album semantics).
+- **Storage:** `ExternalSongEntity` (Room `external_songs` table, PK = uri, DB v8) —
+  `data/local/room/ExternalSongEntity.kt`, `ExternalSongDao`, migrations
+  `MIGRATION_5_6`…`MIGRATION_7_8` (`core/BoomingDatabase.kt`).
+- **Identities:** synthetic stable IDs in a reserved **negative** band
+  (`-(EXTERNAL_ID_BASE + hash)`, `EXTERNAL_ID_BASE` = 1e9,
+  `data/local/repository/ExternalSongRepository.kt`) — guaranteed disjoint from
+  MediaStore `_ID`s (non-negative; large/restored media DBs can exceed any positive
+  threshold, which the old positive band collided with) and from the -1/-2 sentinels;
+  album ids derive from `albumName|albumArtist` (matching MediaStore's album
+  semantics). `MIGRATION_7_8` negates previously stored positive ids
+  (`external_songs.song_id/album_id`, `SongEntity.id` for `external_uri` rows).
 - **Import flow** (`ui/screen/library/LibraryViewModel.kt` `importExternalSong`):
   dedup via `songsByUri` (rejects files MediaStore already maps or that match a
   MediaStore row by display-name+size), rejects already-imported URIs, inserts the
   entity, reloads Songs/Albums. Non-audio or unreadable picks are rejected with a toast.
 - **Library integration:** merged into `Repository.allSongs()` / `searchSongs()`
   (Songs tab + search) and `allAlbums()` / `albumById()` (Albums tab + Go-to-album
-  detail) — `data/local/repository/Repository.kt`. Artists, genres, years, folders,
-  Home lists, History and Most-Played stay MediaStore-only.
+  detail) — `data/local/repository/Repository.kt`. `albumById` routes ids
+  `≤ -EXTERNAL_ID_BASE` to the external store (falling back to MediaStore when the
+  Room store has no songs). Artists, genres, years, folders, Home lists, History and
+  Most-Played stay MediaStore-only.
 - **Playlists & Favorites:** `SongEntity` gained an `external_uri` column (DB v6), so
   imported songs round-trip through user playlists and Favorites and play via the
   external `toMediaItem` path.
@@ -224,7 +230,8 @@ first-class library entries:
   editor, delete-from-device, set-as-ringtone, custom cover and go-to-artist/genre
   (`SongAdapter.onPrepareSongMenu`, `MenuItemClickExt` guards,
   `AbsPlayerFragment.onQuickActionEvent`); album menus gate the same for external
-  albums (id ≥ `EXTERNAL_ID_BASE`). Go-to-album stays enabled.
+  albums (identified by their songs' `externalUri`, not by id band). Go-to-album stays
+  enabled.
 - **Remove from library** (song menu): deletes the Room row + playlist snapshots and
   calls `releaseUriPermission`.
 - **Unplugged providers (e.g. OTG):** on library load, imported songs whose URI can no

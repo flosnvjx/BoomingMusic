@@ -25,8 +25,9 @@ import androidx.room.PrimaryKey
  * A song imported into the in-app library from a provider MediaStore does not manage
  * (e.g. picked via the system file picker from a DocumentsProvider). The [uri] grant is
  * persistable, so the song survives restarts; [songId] and [albumId] are synthetic IDs
- * in a reserved high band (see [com.mardous.booming.data.local.repository.externalSongId]
- * and [com.mardous.booming.data.local.repository.externalAlbumId]).
+ * in a reserved negative band (see [com.mardous.booming.data.local.repository.externalSongId]
+ * and [com.mardous.booming.data.local.repository.externalAlbumId]), disjoint from
+ * MediaStore ids and the -1/-2 sentinels.
  */
 @Entity(tableName = "external_songs")
 class ExternalSongEntity(
