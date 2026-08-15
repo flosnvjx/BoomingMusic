@@ -18,7 +18,7 @@ import com.mardous.booming.data.local.room.ExternalSongEntity
         LyricsEntity::class,
         ExternalSongEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class BoomingDatabase : RoomDatabase() {
@@ -75,6 +75,12 @@ abstract class BoomingDatabase : RoomDatabase() {
                         "PRIMARY KEY(`uri`))"
                 )
                 db.execSQL("ALTER TABLE SongEntity ADD COLUMN external_uri TEXT")
+            }
+        }
+
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE external_songs ADD COLUMN track INTEGER NOT NULL DEFAULT -1")
             }
         }
     }

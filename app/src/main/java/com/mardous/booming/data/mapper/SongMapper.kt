@@ -109,7 +109,7 @@ fun ExternalSongEntity.toSong(): Song {
         id = songId,
         data = "",
         title = title,
-        trackNumber = -1,
+        trackNumber = track,
         year = -1,
         size = size,
         duration = duration,

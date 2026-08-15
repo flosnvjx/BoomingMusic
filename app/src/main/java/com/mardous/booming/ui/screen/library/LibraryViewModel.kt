@@ -195,7 +195,8 @@ class LibraryViewModel(
                                 duration = song.duration,
                                 size = song.size,
                                 dateAdded = System.currentTimeMillis(),
-                                dateModified = song.rawDateModified
+                                dateModified = song.rawDateModified,
+                                track = song.trackNumber
                             )
                         )
                         ImportExternalSongResult.Success

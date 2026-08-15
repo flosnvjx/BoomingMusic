@@ -54,5 +54,7 @@ class ExternalSongEntity(
     @ColumnInfo(name = "date_added")
     val dateAdded: Long,
     @ColumnInfo(name = "date_modified")
-    val dateModified: Long
+    val dateModified: Long,
+    @ColumnInfo(name = "track")
+    val track: Int
 )

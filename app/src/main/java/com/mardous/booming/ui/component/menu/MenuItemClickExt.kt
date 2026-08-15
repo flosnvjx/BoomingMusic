@@ -24,7 +24,6 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.mardous.booming.R
 import com.mardous.booming.data.local.EditTarget
-import com.mardous.booming.data.local.repository.EXTERNAL_ID_BASE
 import com.mardous.booming.data.local.room.PlaylistWithSongs
 import com.mardous.booming.data.mapper.toSongs
 import com.mardous.booming.data.model.Album
@@ -233,8 +232,11 @@ fun List<Song>.onSongsMenu(fragment: Fragment, menuItem: MenuItem): Boolean {
 }
 
 fun Album.onAlbumMenu(fragment: Fragment, menuItem: MenuItem): Boolean {
-    if (id >= EXTERNAL_ID_BASE && menuItem.itemId in EXTERNAL_ALBUM_READ_ONLY_ACTIONS) {
-        // External albums group imported songs; write actions operate on MediaStore.
+    // External albums group imported songs; write actions operate on MediaStore.
+    // Identify them by their songs (externalUri != null), not by id band — MediaStore
+    // album ids can legitimately be >= EXTERNAL_ID_BASE (large/restored media DBs).
+    val isExternalAlbum = songs.firstOrNull()?.externalUri != null
+    if (isExternalAlbum && menuItem.itemId in EXTERNAL_ALBUM_READ_ONLY_ACTIONS) {
         fragment.showToast(R.string.external_song_read_only)
         return true
     }

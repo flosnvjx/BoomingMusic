@@ -424,7 +424,7 @@ class RealSongRepository(
             id = uri.toString().hashCode().toLong(),
             data = "",
             title = metadata?.title ?: fallbackTitle,
-            trackNumber = -1,
+            trackNumber = metadata?.trackNumber ?: -1,
             year = -1,
             size = contentInfo?.second ?: -1L,
             duration = metadata?.duration ?: -1L,
@@ -444,7 +444,8 @@ class RealSongRepository(
         val title: String?,
         val artist: String?,
         val album: String?,
-        val duration: Long?
+        val duration: Long?,
+        val trackNumber: Int?
     )
 
     private fun probeExternalMetadata(uri: Uri): ExternalMetadata? = runCatching {
@@ -459,7 +460,14 @@ class RealSongRepository(
                 album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
                     ?.takeIf { it.isNotBlank() },
                 duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                    ?.toLongOrNull()
+                    ?.toLongOrNull(),
+                // "N/M" or "N" — take the leading number (0-based in some tags, but the
+                // album view shows it as-is and sorts by it).
+                trackNumber = retriever
+                    .extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER)
+                    ?.substringBefore('/')
+                    ?.trim()
+                    ?.toIntOrNull()
             )
         } finally {
             retriever.release()
