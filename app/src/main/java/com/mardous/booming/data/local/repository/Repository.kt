@@ -23,6 +23,7 @@ import androidx.lifecycle.LiveData
 import androidx.media3.common.MediaItem
 import com.mardous.booming.core.model.about.Contribution
 import com.mardous.booming.core.model.filesystem.FileSystemQuery
+import com.mardous.booming.core.sort.AlbumSortMode
 import com.mardous.booming.core.sort.SongSortMode
 import com.mardous.booming.data.SearchFilter
 import com.mardous.booming.data.local.room.PlayCountEntity
@@ -172,7 +173,8 @@ class RealRepository(
             .let { with(SongSortMode.AllSongs) { it.sorted() } }
 
     override suspend fun allAlbums(): List<Album> =
-        albumRepository.albums() + externalSongRepository.albums()
+        (albumRepository.albums() + externalSongRepository.albums())
+            .let { with(AlbumSortMode.AllAlbums) { it.sorted() } }
 
     override suspend fun allArtists(): List<Artist> = artistRepository.artists()
 
