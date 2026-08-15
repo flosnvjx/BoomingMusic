@@ -293,8 +293,11 @@ class RealRepository(
         // Clean up playlists
         val playlists = playlistRepository.playlistsWithSongs()
         playlists.forEach { playlistWithSongs ->
-            val missingSongs = playlistWithSongs.songs.filterNot {
-                File(it.data).exists()
+            // External songs (imported via the file picker) have no device data path and
+            // must never be purged here — their readability is handled elsewhere
+            // (pruneUnreadable removes unreadable imports).
+            val missingSongs = playlistWithSongs.songs.filterNot { song ->
+                song.externalUri != null || File(song.data).exists()
             }
             playlistRepository.deleteSongsFromPlaylist(missingSongs)
         }
