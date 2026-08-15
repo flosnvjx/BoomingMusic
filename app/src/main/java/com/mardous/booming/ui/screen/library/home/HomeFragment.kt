@@ -304,6 +304,7 @@ class HomeFragment : AbsMainActivityFragment(R.layout.fragment_home),
     override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
         menuInflater.inflate(R.menu.menu_library, menu)
         menu.removeItem(R.id.action_scan)
+        menu.removeItem(R.id.action_add_external_song)
         menu.removeItem(R.id.action_equalizer)
         menu.removeItem(R.id.action_grid_size)
         menu.removeItem(R.id.action_view_type)
