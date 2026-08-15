@@ -14,6 +14,7 @@ import androidx.media3.session.MediaSession.MediaItemsWithStartPosition
 import com.mardous.booming.data.local.repository.Repository
 import com.mardous.booming.data.local.room.QueueDao
 import com.mardous.booming.data.local.room.QueueEntity
+import com.mardous.booming.data.local.room.ExternalSongDao
 import com.mardous.booming.extensions.media.isExternalMediaId
 import com.mardous.booming.playback.ImprovedShuffleOrder.SerializedOrder
 import kotlinx.coroutines.CoroutineScope
@@ -45,6 +46,7 @@ class PersistentStorage(
 
     private val queueDao: QueueDao by inject()
     private val repository: Repository by inject()
+    private val externalSongDao: ExternalSongDao by inject()
     private val preferences = context.getSharedPreferences(PREFERENCE_NAME, Context.MODE_PRIVATE)
 
     // Tracks the latest save operation to prevent overlapping writes
@@ -260,12 +262,16 @@ class PersistentStorage(
                 val position = player.currentMediaItemIndex
                 val positionInTrack = player.currentPosition
                 val mediaItems = player.mediaItems
-                // External files opened via ACTION_VIEW are session-only and never
-                // persisted, so translate the current position into persisted-queue
-                // coordinates (count of non-external items before the current one) —
-                // this keeps LAST_INDEX consistent with the persisted original_index.
+                // External files are only persisted when they were imported into the
+                // library via the file picker (persistable grant survives restarts);
+                // session-only ACTION_VIEW files are never persisted. The current
+                // position is translated into persisted-queue coordinates — this keeps
+                // LAST_INDEX consistent with the persisted original_index.
+                val persistedExternalUris = externalSongDao.all().mapTo(HashSet()) { it.uri }
+                fun shouldPersist(mediaId: String): Boolean =
+                    !mediaId.isExternalMediaId() || mediaId in persistedExternalUris
                 val persistedPosition =
-                    mediaItems.take(position.coerceAtLeast(0)).count { !it.mediaId.isExternalMediaId() }
+                    mediaItems.take(position.coerceAtLeast(0)).count { shouldPersist(it.mediaId) }
                 val shuffleOrder = when (val shuffleOrder = player.exoPlayer.shuffleOrder) {
                     is ImprovedShuffleOrder -> SerializedOrder.serializedFromOrder(shuffleOrder)
                     else -> null
@@ -284,17 +290,16 @@ class PersistentStorage(
 
                         // Optionally save playlist order
                         if (savePlaylist) {
-                            // External files (e.g. DocumentsProvider files opened via
-                            // ACTION_VIEW) are session-only — their URI grant is not
-                            // persistent, so they must never be persisted in the queue.
-                            // Orders stay contiguous (external items skipped) so restored
+                            // Session-only external files (ACTION_VIEW, not imported) are
+                            // never persisted; imported external songs are (their grant is
+                            // persistable). Orders stay contiguous so restored
                             // original_index values map 1:1 to restored positions.
                             var order = 0
                             val queueItems = mediaItems.mapNotNull { item ->
-                                if (item.mediaId.isExternalMediaId()) {
-                                    null
-                                } else {
+                                if (shouldPersist(item.mediaId)) {
                                     QueueEntity(id = item.mediaId, order = order++)
+                                } else {
+                                    null
                                 }
                             }
                             if (isActive) {

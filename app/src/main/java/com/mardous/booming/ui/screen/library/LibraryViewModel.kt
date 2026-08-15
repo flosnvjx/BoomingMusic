@@ -20,9 +20,11 @@ package com.mardous.booming.ui.screen.library
 import android.animation.Animator
 import android.animation.AnimatorSet
 import android.animation.ValueAnimator
+import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.media.MediaScannerConnection
+import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.core.animation.doOnEnd
@@ -37,7 +39,11 @@ import com.mardous.booming.core.model.LibraryMargin
 import com.mardous.booming.core.model.filesystem.FileSystemItem
 import com.mardous.booming.core.model.filesystem.FileSystemQuery
 import com.mardous.booming.data.SongProvider
+import com.mardous.booming.data.local.repository.ExternalSongRepository
 import com.mardous.booming.data.local.repository.Repository
+import com.mardous.booming.data.local.repository.externalAlbumId
+import com.mardous.booming.data.local.repository.externalSongId
+import com.mardous.booming.data.local.room.ExternalSongEntity
 import com.mardous.booming.data.local.room.InclExclDao
 import com.mardous.booming.data.local.room.InclExclEntity
 import com.mardous.booming.data.local.room.PlaylistEntity
@@ -71,15 +77,20 @@ import java.io.File
 import kotlin.coroutines.resume
 
 class LibraryViewModel(
+    private val application: Application,
     private val repository: Repository,
     private val inclExclDao: InclExclDao,
-    private val customPlaylistImageManager: CustomPlaylistImageManager
+    private val customPlaylistImageManager: CustomPlaylistImageManager,
+    private val externalSongRepository: ExternalSongRepository
 ) : ViewModel() {
 
     init {
         viewModelScope.launch(IO) {
             initializeBlacklist()
             deleteMissingContent()
+            // Remove imported external songs whose provider got unplugged (e.g. OTG)
+            // and whose persistable grant is no longer readable.
+            externalSongRepository.pruneUnreadable()
         }
     }
 
@@ -154,6 +165,64 @@ class LibraryViewModel(
             ReloadType.Years -> fetchYears()
             ReloadType.Suggestions -> fetchSuggestions()
         }
+    }
+
+    /**
+     * Imports an audio file picked via the system file picker into the in-app library.
+     * [uri] must already carry a persistable read grant (takePersistableUriPermission).
+     */
+    fun importExternalSong(uri: Uri, onResult: (ImportExternalSongResult) -> Unit) =
+        viewModelScope.launch(IO) {
+            val result = runCatching {
+                val song = repository.songsByUri(uri).firstOrNull()
+                when {
+                    song == null || song == Song.emptySong -> ImportExternalSongResult.Unreadable
+                    // songsByUri resolved it to a MediaStore row → already managed.
+                    song.externalUri == null -> ImportExternalSongResult.AlreadyInMediaStore
+                    externalSongRepository.songByUri(uri.toString()) != null ->
+                        ImportExternalSongResult.AlreadyImported
+                    else -> {
+                        externalSongRepository.add(
+                            ExternalSongEntity(
+                                uri = uri.toString(),
+                                songId = externalSongId(uri.toString()),
+                                albumId = externalAlbumId(song.albumName, song.albumArtistName),
+                                title = song.title,
+                                artist = song.artistName,
+                                album = song.albumName,
+                                albumArtist = song.albumArtistName,
+                                genre = song.genreName,
+                                duration = song.duration,
+                                size = song.size,
+                                dateAdded = System.currentTimeMillis(),
+                                dateModified = song.rawDateModified
+                            )
+                        )
+                        ImportExternalSongResult.Success
+                    }
+                }
+            }.getOrDefault(ImportExternalSongResult.Unreadable)
+
+            if (result == ImportExternalSongResult.Success) {
+                forceReload(ReloadType.Songs)
+                forceReload(ReloadType.Albums)
+            }
+            onResult(result)
+        }
+
+    /** Removes an imported external song from the in-app library (and its playlist snapshots). */
+    fun removeExternalSong(song: Song) = viewModelScope.launch(IO) {
+        song.externalUri?.let { uri ->
+            externalSongRepository.remove(uri)
+            runCatching {
+                application.contentResolver.releasePersistableUriPermission(
+                    uri.toUri(), Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+        }
+        forceReload(ReloadType.Songs)
+        forceReload(ReloadType.Albums)
+        forceReload(ReloadType.Playlists)
     }
 
     private suspend fun fetchSuggestions() {
@@ -600,4 +669,12 @@ enum class ReloadType {
     Folders,
     Years,
     Suggestions
+}
+
+/** Outcome of importing an external song picked via the system file picker. */
+sealed class ImportExternalSongResult {
+    data object Success : ImportExternalSongResult()
+    data object AlreadyImported : ImportExternalSongResult()
+    data object AlreadyInMediaStore : ImportExternalSongResult()
+    data object Unreadable : ImportExternalSongResult()
 }

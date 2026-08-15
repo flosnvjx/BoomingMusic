@@ -23,6 +23,7 @@ import androidx.lifecycle.LiveData
 import androidx.media3.common.MediaItem
 import com.mardous.booming.core.model.about.Contribution
 import com.mardous.booming.core.model.filesystem.FileSystemQuery
+import com.mardous.booming.core.sort.SongSortMode
 import com.mardous.booming.data.SearchFilter
 import com.mardous.booming.data.local.room.PlayCountEntity
 import com.mardous.booming.data.local.room.PlaylistEntity
@@ -162,12 +163,16 @@ class RealRepository(
     private val specialRepository: SpecialRepository,
     private val playlistRepository: PlaylistRepository,
     private val searchRepository: SearchRepository,
-    private val networkRepository: NetworkRepository
+    private val networkRepository: NetworkRepository,
+    private val externalSongRepository: ExternalSongRepository
 ) : Repository {
 
-    override suspend fun allSongs(): List<Song> = songRepository.songs()
+    override suspend fun allSongs(): List<Song> =
+        (songRepository.songs() + externalSongRepository.all())
+            .let { with(SongSortMode.AllSongs) { it.sorted() } }
 
-    override suspend fun allAlbums(): List<Album> = albumRepository.albums()
+    override suspend fun allAlbums(): List<Album> =
+        albumRepository.albums() + externalSongRepository.albums()
 
     override suspend fun allArtists(): List<Artist> = artistRepository.artists()
 
@@ -295,9 +300,26 @@ class RealRepository(
         }
     }
 
-    override suspend fun albumById(albumId: Long): Album = albumRepository.album(albumId)
+    override suspend fun albumById(albumId: Long): Album =
+        if (albumId >= EXTERNAL_ID_BASE) {
+            externalSongRepository.albumSongs(albumId).let { songs ->
+                if (songs.isEmpty()) {
+                    Album.empty
+                } else {
+                    Album(
+                        id = albumId,
+                        artistName = songs.first().artistName,
+                        albumArtistName = songs.first().albumArtistName,
+                        year = -1,
+                        songs = songs
+                    )
+                }
+            }
+        } else {
+            albumRepository.album(albumId)
+        }
 
-    override suspend fun albumByIdAsync(albumId: Long): Album = albumRepository.album(albumId)
+    override suspend fun albumByIdAsync(albumId: Long): Album = albumById(albumId)
 
     override suspend fun similarAlbums(album: Album): List<Album> =
         albumRepository.similarAlbums(album)
@@ -433,7 +455,8 @@ class RealRepository(
     override suspend fun search(query: SearchQuery, filter: SearchFilter?): List<Any> =
         searchRepository.searchAll(context, query, filter)
 
-    override suspend fun searchSongs(query: String): List<Song> = songRepository.songs(query)
+    override suspend fun searchSongs(query: String): List<Song> =
+        songRepository.songs(query) + externalSongRepository.search(query)
 
     override fun getLoginState(service: ScrobblingService): Flow<LoginState> =
         networkRepository.getLoginState(service)

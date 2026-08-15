@@ -17,6 +17,7 @@
 
 package com.mardous.booming.ui.component.base
 
+import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Bundle
 import android.view.Menu
@@ -24,6 +25,8 @@ import android.view.MenuInflater
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.appcompat.widget.Toolbar
 import androidx.core.view.doOnLayout
@@ -44,10 +47,12 @@ import com.mardous.booming.extensions.launchAndRepeatWithViewLifecycle
 import com.mardous.booming.extensions.resources.createFastScroller
 import com.mardous.booming.extensions.resources.onVerticalScroll
 import com.mardous.booming.extensions.setSupportActionBar
+import com.mardous.booming.extensions.showToast
 import com.mardous.booming.extensions.topLevelTransition
 import com.mardous.booming.extensions.whichFragment
 import com.mardous.booming.ui.IScrollHelper
 import com.mardous.booming.ui.dialogs.playlists.ImportPlaylistDialog
+import com.mardous.booming.ui.screen.library.ImportExternalSongResult
 import com.mardous.booming.ui.screen.other.ShuffleModeFragment
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -70,6 +75,31 @@ abstract class AbsRecyclerViewFragment<A : RecyclerView.Adapter<*>, LM : Recycle
     abstract val titleRes: Int
 
     protected val sharedPreferences: SharedPreferences by inject()
+
+    /**
+     * System file picker (ACTION_OPEN_DOCUMENT) for importing external audio files that
+     * MediaStore does not manage into the in-app library.
+     */
+    private val importSongLauncher: ActivityResultLauncher<Array<String>> =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) {
+                // The picker grant is persistable, so the imported song survives restarts.
+                runCatching {
+                    requireContext().contentResolver.takePersistableUriPermission(
+                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                }
+                libraryViewModel.importExternalSong(uri) { result ->
+                    val message = when (result) {
+                        ImportExternalSongResult.Success -> R.string.external_song_imported
+                        ImportExternalSongResult.AlreadyImported -> R.string.external_song_already_imported
+                        ImportExternalSongResult.AlreadyInMediaStore -> R.string.external_song_in_media_store
+                        ImportExternalSongResult.Unreadable -> R.string.external_song_unreadable
+                    }
+                    showToast(message)
+                }
+            }
+        }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -234,6 +264,7 @@ abstract class AbsRecyclerViewFragment<A : RecyclerView.Adapter<*>, LM : Recycle
         when (item.itemId) {
             R.id.action_settings -> findNavController().navigate(R.id.nav_settings)
             R.id.action_scan -> mainActivity.scanAllPaths()
+            R.id.action_add_external_song -> importSongLauncher.launch(arrayOf("audio/*"))
             R.id.action_equalizer -> findNavController().navigate(R.id.nav_equalizer)
             R.id.action_import_playlist -> ImportPlaylistDialog().show(childFragmentManager, "IMPORT_PLAYLIST")
         }

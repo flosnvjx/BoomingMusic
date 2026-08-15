@@ -16,9 +16,10 @@ Open-source Android music player (GPL-3.0), inspired by Retro Music Player. Kotl
 
 ## Architecture
 - `App.kt` / `MainModule.kt` — Koin setup; `MainModule.kt` defines all DI modules (`networkModule`, `mainModule`, `roomModule`, `dataModule`, `viewModule`).
-- `core/` — `BoomingDatabase` (Room, version 5, manual `Migration` objects), domain models, Glance appwidgets, audio/palette/sort helpers.
+- `core/` — `BoomingDatabase` (Room, version 6, manual `Migration` objects), domain models, Glance appwidgets, audio/palette/sort helpers.
 - `data/` — repositories (Room DAOs + MediaStore + network) in `data/local/repository` (`Repository` interface + `Real*` impls), mappers, remote clients (`remote/deezer`, `remote/github`, `remote/lastfm`, `remote/listenbrainz`, `remote/lyrics`).
 - `playback/` — `PlaybackService` (Media3 session), equalizer engine, shuffle, audio processors (ReplayGain, Balance), `MediaIDs`.
+- **External-song support** (audio files MediaStore doesn't index, e.g. DocumentsProvider): session path = `Song.externalUri`, `RealSongRepository` resolution + LRU cache, `LibraryProvider` branch, `PersistentStorage` write gate; **imported** songs = `ExternalSongEntity`/`ExternalSongDao` (Room v6), `RealExternalSongRepository`, merge in `RealRepository`, import/remove in `LibraryViewModel`, picker in `AbsRecyclerViewFragment`; reference: `doc/open-with-audio-intent.md`.
 - `ui/` — screens by feature (`screen/library`, `screen/player`, `screen/lyrics`, `screen/settings`, …), RecyclerView adapters (`ui/adapters`), shared View base classes (`ui/component/base`), Compose components (`ui/component/compose`).
 - `coil/` — custom Coil fetchers/mappers for audio covers, artist/playlist images, auto-generated artwork.
 - `extensions/` — Kotlin extension functions; `util/` — `Preferences` (setting keys/accessors), `MusicUtil`, helpers (`BackupHelper`, `CryptoUtil`, `FileUtil`, `StorageUtil`, `SongPlayCountHelper`, `SwipeAndDragHelper.java`).
@@ -32,6 +33,9 @@ Open-source Android music player (GPL-3.0), inspired by Retro Music Player. Kotl
 - Versioning is handled by the `Version` sealed class in `app/build.gradle.kts` (Stable/Beta/RC/Alpha); `versionCode` must match `currentVersion.code` (enforced by `check()`).
 - Android lint `abortOnError = true`; expected warnings are allowlisted in `app/build.gradle.kts` — don't add new lint errors.
 - Keep UI state in `ViewModel`s, media/tag access behind repositories; Remote lyric/Last.fm features are gated by `enable_lastfm_integration` resValue where applicable.
+- **External songs — two kinds**, both with `Song.externalUri` and `MediaItem.mediaId` = the content/file URI string (the only identity surviving the controller↔session Media3 hop; tags/`localConfiguration` don't). Use the shared `Uri.isExternalMediaUri()` / `String.isExternalMediaId()` classifiers (`extensions/media/MediaExt.kt`), never re-implement the URI rule.
+- **Session-only external songs** (ACTION_VIEW open-with, transient grant): never persisted (`PersistentStorage` write gate), never resolve unreadable URIs (`Context.isUriReadable`), skip history/play-count/ReplayGain/scrobbling (`PlaybackService.onMediaItemTransition`). Restore position bookkeeping assumes persisted orders + `LAST_INDEX` are in external-free coordinates.
+- **Imported external songs** (system file picker, persistable grant): durable in Room `external_songs` with synthetic IDs ≥ `EXTERNAL_ID_BASE` (1e9, `data/local/repository/ExternalSongRepository.kt` — never collide with MediaStore ids); merged into Songs/Albums/search/playlists/Favorites via `RealRepository`; write ops (tag editor/delete/ringtone/cover) and go-to-artist/genre are gated off for `externalUri != null`; unreadable imports are auto-pruned; "Remove from library" purges the row + playlist snapshots + releases the grant. Artists/genres/years/folders/History/Most-Played stay MediaStore-only.
 
 ## Notes
-- (Add cross-cutting notes here as they come up.)
+- Open-with / `ACTION_VIEW` handling incl. external + imported songs: see `doc/open-with-audio-intent.md` (kept in sync with the code; update it when behavior changes).

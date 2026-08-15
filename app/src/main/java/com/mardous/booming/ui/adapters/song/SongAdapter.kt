@@ -165,6 +165,22 @@ open class SongAdapter(
         protected open fun onPrepareSongMenu(menu: Menu) {
             menu.findItem(R.id.action_play)
                 ?.isVisible = !songClickBehavior.isAbleToPlay || Preferences.playOptionAlwaysVisible
+
+            if (song.externalUri != null) {
+                // External songs (imported from a provider MediaStore doesn't manage) are
+                // read-only: no tag editor / ringtone / delete-from-device, and no
+                // go-to-artist/genre (artists & genres are not merged for them). They can
+                // be removed from the in-app library.
+                menu.findItem(R.id.action_tag_editor)?.isVisible = false
+                menu.findItem(R.id.action_set_as_ringtone)?.isVisible = false
+                menu.findItem(R.id.action_delete_from_device)?.isVisible = false
+                menu.findItem(R.id.action_remove_from_library)?.isVisible = true
+                // Menu.findItem recurses into submenus, so go-to-artist/genre are reachable here.
+                menu.findItem(R.id.action_go_to_artist)?.isVisible = false
+                menu.findItem(R.id.action_go_to_genre)?.isVisible = false
+            } else {
+                menu.findItem(R.id.action_remove_from_library)?.isVisible = false
+            }
         }
 
         protected open fun onSongMenuItemClick(item: MenuItem): Boolean {

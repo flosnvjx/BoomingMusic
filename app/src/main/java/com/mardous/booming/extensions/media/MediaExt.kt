@@ -148,3 +148,17 @@ fun Uri.isExternalMediaUri(): Boolean = when (scheme) {
  */
 fun String.isExternalMediaId(): Boolean =
     runCatching { toUri() }.getOrNull()?.isExternalMediaUri() == true
+
+/**
+ * Whether [uri] can actually be read right now (e.g. the app holds a valid read grant).
+ */
+fun Context.isUriReadable(uri: Uri): Boolean = try {
+    when (uri.scheme) {
+        ContentResolver.SCHEME_CONTENT ->
+            contentResolver.openFileDescriptor(uri, "r")?.use { true } ?: false
+        ContentResolver.SCHEME_FILE -> File(uri.path ?: "").canRead()
+        else -> false
+    }
+} catch (e: Exception) {
+    false
+}

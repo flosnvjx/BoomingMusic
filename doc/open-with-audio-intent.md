@@ -13,8 +13,8 @@ queue and now-playing UI, and show up in the notification. External files are
 session-only: the queue entry is not restored after an app restart, and MediaStore-backed
 features (history, play counts, scrobbling, ReplayGain, artwork) are skipped for them.
 
-> **Source snapshot:** behavior verified against commit `aa2ddcf6` (2026-08-15).
-> All code references are `file:line` in `app/src/main/java/`.
+> **Source snapshot:** behavior verified against the current working tree (post `aa2ddcf6`,
+> 2026-08-15). All code references are `file:line` in `app/src/main/java/`.
 
 ---
 
@@ -156,13 +156,13 @@ title/artist/duration.
   timeline change (`playback/PlaybackService.kt:677`); on restart the queue is restored
   by re-resolving MediaStore IDs (`playback/PersistentStorage.kt:101-148`). History is
   written on `onMediaItemTransition` (`PlaybackService.kt:731-735`).
-- **External file:** strictly session-only. External songs are excluded from
+- **External file (session-only):** never persisted. External songs are excluded from
   `QueueEntity` when the queue is persisted (`PersistentStorage.kt:280-302`), and a URI
-  that cannot be read never resolves into a song (`isUriReadable`,
-  `SongRepository.kt:392-403`), so restore drops such items instead of restoring a
-  dead, unplayable entry. `LAST_INDEX` is saved in persisted-queue coordinates so
-  resume positions stay valid. The app never calls `takePersistableUriPermission`, so
-  the source URI grant is not retained either.
+  that cannot be read never resolves into a song (`Context.isUriReadable`), so restore
+  drops such items instead of restoring a dead, unplayable entry. `LAST_INDEX` is saved
+  in persisted-queue coordinates so resume positions stay valid. The app never calls
+  `takePersistableUriPermission` for ACTION_VIEW files, so the source URI grant is not
+  retained either. **Imported** external songs (file picker) are durable — see §10.
 
 ## 8. Behavior matrix
 
@@ -173,6 +173,7 @@ title/artist/duration.
 | DocumentsProvider URI mappable via `getMediaUri` (API 29+) | Treated as its MediaStore row → plays, persisted |
 | DocumentsProvider URI **not** in MediaStore (cloud/OTG, or any provider on API 26–28) | External song → raw URI streamed, queue replaced, now-playing + notification show probed title; session-only, no history/play-count/artwork/ReplayGain |
 | External file, app restarted | Not persisted and unreadable after restart → restore drops it; the queue resumes with the remaining persisted songs at the correct position |
+| **Imported** external song (file picker) | Durable: persists in Room + queue, appears in Songs/Albums/search/playlists/Favorites, survives restarts; write ops disabled; removable; auto-pruned if the provider is unplugged |
 | `file://` not indexed by MediaStore | Same external-song path → plays |
 | URI completely unreadable (provider query + probe both fail) | `emptySong` → silent no-op: queue cleared, nothing plays, no toast, nothing saved |
 | No `READ_MEDIA_AUDIO` on cold start | Redirects to `PermissionsActivity`, intent dropped |
@@ -180,7 +181,7 @@ title/artist/duration.
 ## 9. Known limitations
 
 - **Session-only:** an opened external file does not survive an app restart, and the
-  URI grant is not persisted.
+  URI grant is not persisted. (Imported songs — see §10 — are durable.)
 - **No artwork:** external songs fall back to the default placeholder (`CoverProvider`
   resolves only MediaStore album art).
 - **No Android Auto/AAOS:** external items are resolved for the in-app controller
@@ -189,3 +190,43 @@ title/artist/duration.
   keying and any per-song feature are scoped to the session.
 - If the metadata probe fails, the subtitle may show `0:00` until ExoPlayer reports the
   real duration; the seek bar is unaffected.
+
+## 10. Imported external songs (system file picker)
+
+Besides the transient ACTION_VIEW path, users can **permanently import** external audio
+files into the in-app library via the system file picker ("Add from file…" in the library
+menu, `res/menu/menu_library.xml`). Because the picker grant is **persistable**
+(`takePersistableUriPermission`), imported songs survive restarts and behave like
+first-class library entries:
+
+- **Storage:** `ExternalSongEntity` (Room `external_songs` table, PK = uri, DB v6) —
+  `data/local/room/ExternalSongEntity.kt`, `ExternalSongDao`, migration
+  `MIGRATION_5_6` (`core/BoomingDatabase.kt`).
+- **Identities:** synthetic stable IDs in a reserved high band
+  (`EXTERNAL_ID_BASE` = 1e9 + hash, `data/local/repository/ExternalSongRepository.kt`)
+  — never collide with MediaStore `_ID`s or the -1/-2 sentinels; album ids derive from
+  `albumName|albumArtist` (matching MediaStore's album semantics).
+- **Import flow** (`ui/screen/library/LibraryViewModel.kt` `importExternalSong`):
+  dedup via `songsByUri` (rejects files MediaStore already maps or that match a
+  MediaStore row by display-name+size), rejects already-imported URIs, inserts the
+  entity, reloads Songs/Albums. Non-audio or unreadable picks are rejected with a toast.
+- **Library integration:** merged into `Repository.allSongs()` / `searchSongs()`
+  (Songs tab + search) and `allAlbums()` / `albumById()` (Albums tab + Go-to-album
+  detail) — `data/local/repository/Repository.kt`. Artists, genres, years, folders,
+  Home lists, History and Most-Played stay MediaStore-only.
+- **Playlists & Favorites:** `SongEntity` gained an `external_uri` column (DB v6), so
+  imported songs round-trip through user playlists and Favorites and play via the
+  external `toMediaItem` path.
+- **Queue persistence:** `PersistentStorage` persists imported external mediaIds
+  (readable on restart via the persistable grant) but still excludes session-only ones;
+  the persisted order/`LAST_INDEX` translation uses the same predicate.
+- **Read-only gating:** for `externalUri != null` songs the app hides/disables tag
+  editor, delete-from-device, set-as-ringtone, custom cover and go-to-artist/genre
+  (`SongAdapter.onPrepareSongMenu`, `MenuItemClickExt` guards,
+  `AbsPlayerFragment.onQuickActionEvent`); album menus gate the same for external
+  albums (id ≥ `EXTERNAL_ID_BASE`). Go-to-album stays enabled.
+- **Remove from library** (song menu): deletes the Room row + playlist snapshots and
+  calls `releaseUriPermission`.
+- **Unplugged providers (e.g. OTG):** on library load, imported songs whose URI can no
+  longer be read (`Context.isUriReadable`) are auto-removed (external_songs row +
+  playlist snapshots) — `pruneUnreadable` in `RealExternalSongRepository`.

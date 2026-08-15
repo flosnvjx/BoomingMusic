@@ -55,5 +55,7 @@ class SongEntity(
     @ColumnInfo(name = "album_artist")
     val albumArtist: String?,
     @ColumnInfo(name = "genre_name")
-    val genreName: String?
+    val genreName: String?,
+    @ColumnInfo(name = "external_uri")
+    val externalUri: String? = null
 ) : Parcelable

@@ -17,6 +17,7 @@
 
 package com.mardous.booming.data.mapper
 
+import com.mardous.booming.data.local.room.ExternalSongEntity
 import com.mardous.booming.data.local.room.HistoryEntity
 import com.mardous.booming.data.local.room.PlayCountEntity
 import com.mardous.booming.data.local.room.PlaylistEntity
@@ -77,7 +78,8 @@ fun Song.toSongEntity(playListId: Long): SongEntity {
         artistId = artistId,
         artistName = artistName,
         albumArtist = albumArtistName,
-        genreName = genreName
+        genreName = genreName,
+        externalUri = externalUri
     )
 }
 
@@ -97,7 +99,29 @@ fun SongEntity.toSong(): Song {
         artistId = artistId,
         artistName = artistName,
         albumArtistName = albumArtist,
-        genreName = genreName
+        genreName = genreName,
+        externalUri = externalUri
+    )
+}
+
+fun ExternalSongEntity.toSong(): Song {
+    return Song(
+        id = songId,
+        data = "",
+        title = title,
+        trackNumber = -1,
+        year = -1,
+        size = size,
+        duration = duration,
+        dateAdded = dateAdded,
+        rawDateModified = dateModified,
+        albumId = albumId,
+        albumName = album,
+        artistId = -1L,
+        artistName = artist,
+        albumArtistName = albumArtist,
+        genreName = genre,
+        externalUri = uri
     )
 }
 

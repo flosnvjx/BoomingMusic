@@ -24,6 +24,7 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.mardous.booming.R
 import com.mardous.booming.data.local.EditTarget
+import com.mardous.booming.data.local.repository.EXTERNAL_ID_BASE
 import com.mardous.booming.data.local.room.PlaylistWithSongs
 import com.mardous.booming.data.mapper.toSongs
 import com.mardous.booming.data.model.Album
@@ -52,6 +53,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.androidx.viewmodel.ext.android.getActivityViewModel
 
+/** Actions that operate on MediaStore / the device file and must be disabled for external songs. */
+private val EXTERNAL_SONG_READ_ONLY_ACTIONS = setOf(
+    R.id.action_tag_editor,
+    R.id.action_set_as_ringtone,
+    R.id.action_delete_from_device
+)
+
+private val EXTERNAL_ALBUM_READ_ONLY_ACTIONS = setOf(
+    R.id.action_tag_editor,
+    R.id.action_delete_from_device
+)
+
 fun Song.onSongMenu(
     fragment: Fragment,
     menuItem: MenuItem,
@@ -60,7 +73,18 @@ fun Song.onSongMenu(
     if (id == -1L) {
         return false
     }
+    if (externalUri != null && menuItem.itemId in EXTERNAL_SONG_READ_ONLY_ACTIONS) {
+        // External songs (imported from a provider MediaStore doesn't manage) are
+        // read-only: tag editing, ringtone and delete-from-device operate on MediaStore.
+        fragment.showToast(R.string.external_song_read_only)
+        return true
+    }
     return when (menuItem.itemId) {
+        R.id.action_remove_from_library -> {
+            val libraryViewModel = fragment.getActivityViewModel<LibraryViewModel>()
+            libraryViewModel.removeExternalSong(this)
+            true
+        }
         R.id.action_play_next -> {
             val playerViewModel = fragment.getActivityViewModel<PlayerViewModel>()
             playerViewModel.queueNext(this)
@@ -203,6 +227,11 @@ fun List<Song>.onSongsMenu(fragment: Fragment, menuItem: MenuItem): Boolean {
 }
 
 fun Album.onAlbumMenu(fragment: Fragment, menuItem: MenuItem): Boolean {
+    if (id >= EXTERNAL_ID_BASE && menuItem.itemId in EXTERNAL_ALBUM_READ_ONLY_ACTIONS) {
+        // External albums group imported songs; write actions operate on MediaStore.
+        fragment.showToast(R.string.external_song_read_only)
+        return true
+    }
     return when (menuItem.itemId) {
         R.id.action_go_to_artist -> {
             fragment.findActivityNavController(R.id.fragment_container)

@@ -17,6 +17,8 @@
     <item name="action_album_artist" type="id"/>
     <item name="action_new_playlist" type="id"/>
     <item name="action_import_playlist" type="id"/>
+    <item name="action_add_external_song" type="id"/>
+    <item name="action_remove_from_library" type="id"/>
     <item name="action_multi_select_adapter_check_all" type="id"/>
 
     <item name="id_inset_consumed" type="id"/>

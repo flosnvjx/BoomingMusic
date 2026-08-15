@@ -5,6 +5,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.mardous.booming.data.local.room.*
+import com.mardous.booming.data.local.room.ExternalSongEntity
 
 @Database(
     entities = [
@@ -14,9 +15,10 @@ import com.mardous.booming.data.local.room.*
         PlayCountEntity::class,
         QueueEntity::class,
         InclExclEntity::class,
-        LyricsEntity::class
+        LyricsEntity::class,
+        ExternalSongEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class BoomingDatabase : RoomDatabase() {
@@ -26,6 +28,7 @@ abstract class BoomingDatabase : RoomDatabase() {
     abstract fun queueDao(): QueueDao
     abstract fun inclExclDao(): InclExclDao
     abstract fun lyricsDao(): LyricsDao
+    abstract fun externalSongDao(): ExternalSongDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -50,6 +53,28 @@ abstract class BoomingDatabase : RoomDatabase() {
         val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("DROP TABLE IF EXISTS CanvasEntity")
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `external_songs` (" +
+                        "`uri` TEXT NOT NULL, " +
+                        "`song_id` INTEGER NOT NULL, " +
+                        "`album_id` INTEGER NOT NULL, " +
+                        "`title` TEXT NOT NULL, " +
+                        "`artist` TEXT NOT NULL, " +
+                        "`album` TEXT NOT NULL, " +
+                        "`album_artist` TEXT, " +
+                        "`genre` TEXT, " +
+                        "`duration` INTEGER NOT NULL, " +
+                        "`size` INTEGER NOT NULL, " +
+                        "`date_added` INTEGER NOT NULL, " +
+                        "`date_modified` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`uri`))"
+                )
+                db.execSQL("ALTER TABLE SongEntity ADD COLUMN external_uri TEXT")
             }
         }
     }

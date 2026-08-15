@@ -41,6 +41,8 @@ import com.mardous.booming.data.local.repository.RealPlaylistRepository
 import com.mardous.booming.data.local.repository.RealRepository
 import com.mardous.booming.data.local.repository.RealSearchRepository
 import com.mardous.booming.data.local.repository.RealSmartRepository
+import com.mardous.booming.data.local.repository.ExternalSongRepository
+import com.mardous.booming.data.local.repository.RealExternalSongRepository
 import com.mardous.booming.data.local.repository.RealSongRepository
 import com.mardous.booming.data.local.repository.RealSpecialRepository
 import com.mardous.booming.data.local.repository.Repository
@@ -154,9 +156,14 @@ private val roomModule = module {
                 BoomingDatabase.MIGRATION_1_2,
                 BoomingDatabase.MIGRATION_2_3,
                 BoomingDatabase.MIGRATION_3_4,
-                BoomingDatabase.MIGRATION_4_5
+                BoomingDatabase.MIGRATION_4_5,
+                BoomingDatabase.MIGRATION_5_6
             )
             .build()
+    }
+
+    factory {
+        get<BoomingDatabase>().externalSongDao()
     }
 
     factory {
@@ -196,13 +203,18 @@ private val dataModule = module {
             specialRepository = get(),
             playlistRepository = get(),
             searchRepository = get(),
-            networkRepository = get()
+            networkRepository = get(),
+            externalSongRepository = get()
         )
     } bind Repository::class
 
     single {
         RealSongRepository(context = get(), inclExclDao = get())
     } bind SongRepository::class
+
+    single {
+        RealExternalSongRepository(context = get(), dao = get(), playlistDao = get())
+    } bind ExternalSongRepository::class
 
     single {
         RealAlbumRepository(songRepository = get())
@@ -273,7 +285,13 @@ private val dataModule = module {
 
 private val viewModule = module {
     viewModel {
-        LibraryViewModel(repository = get(), inclExclDao = get(), customPlaylistImageManager = get())
+        LibraryViewModel(
+            application = get(),
+            repository = get(),
+            inclExclDao = get(),
+            customPlaylistImageManager = get(),
+            externalSongRepository = get()
+        )
     }
 
     viewModel {

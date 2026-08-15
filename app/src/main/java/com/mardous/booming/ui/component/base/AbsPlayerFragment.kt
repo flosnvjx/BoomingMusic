@@ -79,6 +79,7 @@ import com.mardous.booming.extensions.resources.animateBackgroundColor
 import com.mardous.booming.extensions.resources.animateTintColor
 import com.mardous.booming.extensions.resources.inflateMenu
 import com.mardous.booming.extensions.resources.setMarquee
+import com.mardous.booming.extensions.showToast
 import com.mardous.booming.extensions.utilities.buildInfoString
 import com.mardous.booming.extensions.whichFragment
 import com.mardous.booming.ui.component.menu.newPopupMenu
@@ -443,6 +444,17 @@ abstract class AbsPlayerFragment(@LayoutRes layoutRes: Int) : Fragment(layoutRes
 
     internal fun onQuickActionEvent(action: NowPlayingAction): Boolean {
         val currentSong = playerViewModel.currentSong
+        // External songs are read-only (no MediaStore identity / writable file) and have
+        // no merged artist page.
+        if (currentSong.externalUri != null &&
+            (action == NowPlayingAction.TagEditor ||
+                action == NowPlayingAction.DeleteFromDevice ||
+                action == NowPlayingAction.SaveAlbumCover ||
+                action == NowPlayingAction.OpenArtist)
+        ) {
+            showToast(R.string.external_song_read_only)
+            return true
+        }
         return when (action) {
             NowPlayingAction.OpenAlbum -> {
                 goToAlbum(requireActivity(), currentSong)
