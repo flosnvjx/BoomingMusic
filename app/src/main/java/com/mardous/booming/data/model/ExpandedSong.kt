@@ -22,7 +22,8 @@ class ExpandedSong(
     val playCount: Int,
     val skipCount: Int,
     val lastPlayedAt: Long,
-    val isFavorite: Boolean
+    val isFavorite: Boolean,
+    override val externalUri: String? = null
 ) : Song(
     id,
     data,
@@ -38,7 +39,8 @@ class ExpandedSong(
     artistId,
     artistName,
     albumArtistName,
-    genreName
+    genreName,
+    externalUri
 ) {
 
     constructor(
@@ -66,6 +68,7 @@ class ExpandedSong(
         playCount,
         skipCount,
         lastPlayedAt,
-        isFavorite
+        isFavorite,
+        song.externalUri
     )
 }

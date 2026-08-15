@@ -21,6 +21,7 @@ import android.annotation.SuppressLint
 import android.content.ContentResolver
 import android.content.Context
 import android.database.Cursor
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Environment
 import android.provider.DocumentsContract
@@ -130,12 +131,18 @@ class RealSongRepository(
         } else if (uri.scheme == ContentResolver.SCHEME_FILE) {
             val path = uri.path
             if (path != null) {
-                songs = listOf(songByFilePath(path, true))
+                val found = songByFilePath(path, true)
+                songs = if (found != Song.emptySong) listOf(found) else listOf(externalSongFromUri(uri))
             }
         }
 
         if (songs.isEmpty() && uri.scheme == ContentResolver.SCHEME_CONTENT) {
-            songs = listOf(findSongFromFileProviderUri(uri))
+            val mediaStoreMatch = findSongFromFileProviderUri(uri)
+            songs = if (mediaStoreMatch != Song.emptySong) {
+                listOf(mediaStoreMatch)
+            } else {
+                listOf(externalSongFromUri(uri))
+            }
         }
 
         if (songs.isEmpty()) {
@@ -148,7 +155,21 @@ class RealSongRepository(
     override suspend fun songsByMediaItems(mediaItems: List<MediaItem>): Pair<List<Song>, List<MediaItem>> {
         if (mediaItems.isEmpty()) return (emptyList<Song>() to mediaItems)
 
-        val ids = mediaItems.map { it.mediaId }
+        // Songs carried on the MediaItem tag (e.g. external files opened via ACTION_VIEW)
+        // are resolved directly and keep their position in the list.
+        val resultSongs = mutableListOf<Song>()
+        val remaining = mutableListOf<MediaItem>()
+        for (item in mediaItems) {
+            val taggedSong = (item.localConfiguration?.tag as? Song)?.takeIf { it != Song.emptySong }
+            if (taggedSong != null) {
+                resultSongs.add(taggedSong)
+            } else {
+                remaining.add(item)
+            }
+        }
+        if (remaining.isEmpty()) return resultSongs to emptyList()
+
+        val ids = remaining.map { it.mediaId }
         val allSongs = buildList {
             ids.chunked(900).forEach { chunk ->
                 val selection = "${AudioColumns._ID} IN (${chunk.joinToString(",") { "?" }})"
@@ -158,11 +179,15 @@ class RealSongRepository(
         }
 
         val songMap = allSongs.associateBy { it.id.toString() }
-        val (found, missing) = mediaItems.partition { item ->
-            songMap[item.mediaId]?.takeIf { it != Song.emptySong } != null
+        val missing = mutableListOf<MediaItem>()
+        for (item in remaining) {
+            val song = songMap[item.mediaId]
+            if (song != null && song != Song.emptySong) {
+                resultSongs.add(song)
+            } else {
+                missing.add(item)
+            }
         }
-
-        val resultSongs = found.mapNotNull { songMap[it.mediaId] }
         return resultSongs to missing
     }
 
@@ -274,16 +299,21 @@ class RealSongRepository(
     }
 
     private fun getDisplayNameAndSize(uri: Uri): Pair<String, Long>? {
-        return MediaQueryDispatcher(uri)
-            .withColumns(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)
-            .dispatch()?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val name =
-                        cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
-                    val size = cursor.getLong(cursor.getColumnIndexOrThrow(OpenableColumns.SIZE))
-                    return name to size
-                } else null
-            }
+        return try {
+            MediaQueryDispatcher(uri)
+                .withColumns(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)
+                .dispatch()?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val name =
+                            cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+                        val size = cursor.getLong(cursor.getColumnIndexOrThrow(OpenableColumns.SIZE))
+                        name to size
+                    } else null
+                }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to retrieve display name and size from Uri: $uri", e)
+            null
+        }
     }
 
     private fun findSongFromFileProviderUri(uri: Uri): Song {
@@ -296,6 +326,72 @@ class RealSongRepository(
         val cursor = makeSongCursor(selection, selectionArgs, ignoreBlacklist = true)
         return song(cursor)
     }
+
+    /**
+     * Builds a playable [Song] for a file that MediaStore does not index (e.g. an audio
+     * file opened through a DocumentsProvider). The raw content URI is streamed directly
+     * by the player; metadata is taken from [OpenableColumns.DISPLAY_NAME] and, when
+     * possible, from an in-place [MediaMetadataRetriever] probe. Returns [Song.emptySong]
+     * when the URI cannot be inspected at all.
+     */
+    private fun externalSongFromUri(uri: Uri): Song = runCatching {
+        val contentInfo = if (uri.scheme == ContentResolver.SCHEME_CONTENT) {
+            getDisplayNameAndSize(uri)
+        } else {
+            null
+        }
+        val displayName = contentInfo?.first ?: uri.lastPathSegment
+        val display = displayName.orEmpty()
+        val fallbackTitle = display.substringBeforeLast('.', display)
+            .takeIf { it.isNotBlank() }
+            ?: display
+
+        val metadata = probeExternalMetadata(uri)
+        Song(
+            id = uri.toString().hashCode().toLong(),
+            data = "",
+            title = metadata?.title ?: fallbackTitle,
+            trackNumber = -1,
+            year = -1,
+            size = contentInfo?.second ?: -1L,
+            duration = metadata?.duration ?: -1L,
+            dateAdded = -1L,
+            rawDateModified = -1L,
+            albumId = -1L,
+            albumName = metadata?.album.orEmpty(),
+            artistId = -1L,
+            artistName = metadata?.artist.orEmpty(),
+            albumArtistName = null,
+            genreName = null,
+            externalUri = uri.toString()
+        )
+    }.getOrDefault(Song.emptySong)
+
+    private data class ExternalMetadata(
+        val title: String?,
+        val artist: String?,
+        val album: String?,
+        val duration: Long?
+    )
+
+    private fun probeExternalMetadata(uri: Uri): ExternalMetadata? = runCatching {
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(context, uri)
+            ExternalMetadata(
+                title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
+                    ?.takeIf { it.isNotBlank() },
+                artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
+                    ?.takeIf { it.isNotBlank() },
+                album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
+                    ?.takeIf { it.isNotBlank() },
+                duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    ?.toLongOrNull()
+            )
+        } finally {
+            retriever.release()
+        }
+    }.getOrNull()
 
     private fun getSongFromCursorImpl(cursor: Cursor): Song {
         val id = cursor.getLong(0)

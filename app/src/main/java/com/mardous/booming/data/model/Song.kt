@@ -48,11 +48,12 @@ open class Song(
     open val artistId: Long,
     open val artistName: String,
     open val albumArtistName: String?,
-    open val genreName: String?
+    open val genreName: String?,
+    open val externalUri: String? = null
 ) : Parcelable, FileSystemItem {
 
     val uri: Uri
-        get() = ContentUris.withAppendedId(getAudioContentUri(), id)
+        get() = externalUri?.toUri() ?: ContentUris.withAppendedId(getAudioContentUri(), id)
 
     val albumCoverUri: Uri
         get() = ContentUris.withAppendedId("content://media/external/audio/albumart".toUri(), albumId)
@@ -87,12 +88,37 @@ open class Song(
         song.artistId,
         song.artistName,
         song.albumArtistName,
-        song.genreName
+        song.genreName,
+        song.externalUri
     )
 
-    fun toMediaItem(itemId: String = id.toString()): MediaItem =
-        if (this == emptySong) {
+    fun toMediaItem(itemId: String = id.toString()): MediaItem {
+        val externalUri = externalUri
+        return if (this == emptySong) {
             MediaItem.EMPTY
+        } else if (externalUri != null) {
+            // Song opened from an external provider (e.g. DocumentsProvider file that
+            // MediaStore does not index). Play the raw content URI directly and carry
+            // this Song as the MediaItem tag so downstream code can recover it without
+            // a MediaStore lookup.
+            MediaItem.Builder()
+                .setUri(externalUri.toUri())
+                .setMediaId(externalUri)
+                .setTag(this)
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setIsPlayable(true)
+                        .setIsBrowsable(false)
+                        .setTitle(title)
+                        .setSubtitle(songInfo())
+                        .setAlbumTitle(albumName)
+                        .setArtist(artistName)
+                        .setAlbumArtist(albumArtistName)
+                        .setGenre(genreName)
+                        .setDurationMs(duration.coerceAtLeast(0))
+                        .build()
+                )
+                .build()
         } else {
             MediaItem.Builder()
                 .setUri(uri)
@@ -115,6 +141,7 @@ open class Song(
                 )
                 .build()
         }
+    }
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -134,7 +161,8 @@ open class Song(
         if (data != song.data) return false
         if (title != song.title) return false
         if (albumArtistName != song.albumArtistName) return false
-        return genreName == song.genreName
+        if (genreName != song.genreName) return false
+        return externalUri == song.externalUri
     }
 
     override fun hashCode(): Int {
@@ -153,7 +181,8 @@ open class Song(
             artistId,
             artistName,
             albumArtistName,
-            genreName
+            genreName,
+            externalUri
         )
     }
 
@@ -174,6 +203,7 @@ open class Song(
                 ", artistName='" + artistName + '\'' +
                 ", albumArtistName='" + albumArtistName + '\'' +
                 ", genreName='" + genreName + '\'' +
+                ", externalUri='" + externalUri + '\'' +
                 '}'
     }
 

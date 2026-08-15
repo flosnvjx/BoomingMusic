@@ -722,7 +722,13 @@ class PlaybackService :
             val shouldBumpPlayCount = songPlayCountHelper.shouldBumpPlayCount()
             songPlayCountHelper.notifySongChanged(newSong, isPlaying)
 
-            if (newSong != Song.emptySong) {
+            // External files (opened via ACTION_VIEW from a provider MediaStore does not
+            // index) have no MediaStore identity: skip features that depend on it and
+            // reset ReplayGain so the previous track's gain does not leak onto them.
+            val isExternalSong = newSong.externalUri != null
+            if (isExternalSong) {
+                replayGainProcessor.currentGain = null
+            } else if (newSong != Song.emptySong) {
                 replayGainProcessor.currentGain = ReplayGainTagExtractor.getReplayGain(newSong)
                 if (preferences.getBoolean(ENABLE_HISTORY, true)) {
                     repository.upsertSongInHistory(newSong)
@@ -734,7 +740,7 @@ class PlaybackService :
                     launch { repository.updateNowPlaying(ScrobblingService.ListenBrainz, newSong) }
                 }
             }
-            if (previousSong != Song.emptySong) {
+            if (previousSong != Song.emptySong && previousSong.externalUri == null) {
                 val timestampMillis = System.currentTimeMillis()
                 val timestampSeconds = (timestampMillis / 1000)
                 if (shouldBumpPlayCount) {
