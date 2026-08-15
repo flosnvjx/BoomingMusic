@@ -18,7 +18,7 @@ import com.mardous.booming.data.local.room.ExternalSongEntity
         LyricsEntity::class,
         ExternalSongEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class BoomingDatabase : RoomDatabase() {
@@ -90,6 +90,14 @@ abstract class BoomingDatabase : RoomDatabase() {
                 // MediaStore ids on large/restored media DBs) to the disjoint negative band.
                 db.execSQL("UPDATE external_songs SET song_id = -song_id, album_id = -album_id")
                 db.execSQL("UPDATE SongEntity SET id = -id WHERE external_uri IS NOT NULL")
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // date_added was stored in milliseconds; MediaStore's DATE_ADDED is in
+                // seconds. Convert existing rows so DateAdded sorting is consistent.
+                db.execSQL("UPDATE external_songs SET date_added = date_added / 1000")
             }
         }
     }

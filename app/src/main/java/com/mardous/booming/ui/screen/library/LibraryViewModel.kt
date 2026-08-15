@@ -194,7 +194,10 @@ class LibraryViewModel(
                                 genre = song.genreName,
                                 duration = song.duration,
                                 size = song.size,
-                                dateAdded = System.currentTimeMillis(),
+                                // Seconds since epoch, matching MediaStore's DATE_ADDED unit,
+                                // so DateAdded sorting/recency compares correctly across
+                                // MediaStore and external songs.
+                                dateAdded = System.currentTimeMillis() / 1000,
                                 dateModified = song.rawDateModified,
                                 track = song.trackNumber
                             )
