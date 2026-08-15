@@ -156,9 +156,13 @@ title/artist/duration.
   timeline change (`playback/PlaybackService.kt:677`); on restart the queue is restored
   by re-resolving MediaStore IDs (`playback/PersistentStorage.kt:101-148`). History is
   written on `onMediaItemTransition` (`PlaybackService.kt:731-735`).
-- **External file:** session-only by design. `QueueEntity` stores the URI mediaId, but
-  restore cannot re-resolve it and drops it; the app never calls
-  `takePersistableUriPermission`, so the source URI grant is not retained either.
+- **External file:** strictly session-only. External songs are excluded from
+  `QueueEntity` when the queue is persisted (`PersistentStorage.kt:280-302`), and a URI
+  that cannot be read never resolves into a song (`isUriReadable`,
+  `SongRepository.kt:392-403`), so restore drops such items instead of restoring a
+  dead, unplayable entry. `LAST_INDEX` is saved in persisted-queue coordinates so
+  resume positions stay valid. The app never calls `takePersistableUriPermission`, so
+  the source URI grant is not retained either.
 
 ## 8. Behavior matrix
 
@@ -168,6 +172,7 @@ title/artist/duration.
 | App running, MediaStore-indexed file | Same, via `onNewIntent` (no restore fallback if unhandled) |
 | DocumentsProvider URI mappable via `getMediaUri` (API 29+) | Treated as its MediaStore row → plays, persisted |
 | DocumentsProvider URI **not** in MediaStore (cloud/OTG, or any provider on API 26–28) | External song → raw URI streamed, queue replaced, now-playing + notification show probed title; session-only, no history/play-count/artwork/ReplayGain |
+| External file, app restarted | Not persisted and unreadable after restart → restore drops it; the queue resumes with the remaining persisted songs at the correct position |
 | `file://` not indexed by MediaStore | Same external-song path → plays |
 | URI completely unreadable (provider query + probe both fail) | `emptySong` → silent no-op: queue cleared, nothing plays, no toast, nothing saved |
 | No `READ_MEDIA_AUDIO` on cold start | Redirects to `PermissionsActivity`, intent dropped |
