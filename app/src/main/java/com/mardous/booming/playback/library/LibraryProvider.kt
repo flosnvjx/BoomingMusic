@@ -1,9 +1,6 @@
 package com.mardous.booming.playback.library
 
-import android.content.ContentResolver
 import android.content.Context
-import android.net.Uri
-import android.provider.MediaStore
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import com.mardous.booming.R
@@ -20,6 +17,7 @@ import com.mardous.booming.data.model.Song
 import com.mardous.booming.extensions.media.albumInfo
 import com.mardous.booming.extensions.media.artistInfo
 import com.mardous.booming.extensions.media.asNumberOfSongs
+import com.mardous.booming.extensions.media.isExternalMediaId
 import com.mardous.booming.extensions.media.songCountStr
 import com.mardous.booming.playback.toMediaItems
 import com.mardous.booming.util.Preferences
@@ -49,13 +47,7 @@ class LibraryProvider(private val repository: Repository) {
             // MediaStore does not index) are carried by their content URI mediaId. Rebuild
             // a playable MediaItem from the URI before the auto/AAOS path handling, which
             // cannot resolve them.
-            val externalItems = missingMediaItems.filter { item ->
-                runCatching { Uri.parse(item.mediaId) }.getOrNull()?.let { uri ->
-                    uri.scheme == ContentResolver.SCHEME_FILE ||
-                        (uri.scheme == ContentResolver.SCHEME_CONTENT &&
-                            uri.authority != MediaStore.AUTHORITY)
-                } == true
-            }
+            val externalItems = missingMediaItems.filter { item -> item.mediaId.isExternalMediaId() }
             externalItems.forEach { item ->
                 val song = repository.songByMediaItem(item)
                 if (song != Song.emptySong && song.externalUri != null) {

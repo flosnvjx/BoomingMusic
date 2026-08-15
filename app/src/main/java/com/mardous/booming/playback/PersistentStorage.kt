@@ -14,6 +14,7 @@ import androidx.media3.session.MediaSession.MediaItemsWithStartPosition
 import com.mardous.booming.data.local.repository.Repository
 import com.mardous.booming.data.local.room.QueueDao
 import com.mardous.booming.data.local.room.QueueEntity
+import com.mardous.booming.extensions.media.isExternalMediaId
 import com.mardous.booming.playback.ImprovedShuffleOrder.SerializedOrder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -153,6 +154,13 @@ class PersistentStorage(
                         startPosition = startPosition.coerceIn(0, restoredMediaItems.lastIndex)
                     }
 
+                    // LAST_INDEX is in persisted-queue coordinates, but persisted items
+                    // may fail to resolve on restore (e.g. deleted MediaStore songs) —
+                    // keep the start index within the restored list as defense in depth.
+                    if (startPosition != C.INDEX_UNSET) {
+                        startPosition = startPosition.coerceIn(0, restoredMediaItems.lastIndex)
+                    }
+
                     MediaItemsWithStartPosition(
                         restoredMediaItems,
                         startPosition,
@@ -252,6 +260,12 @@ class PersistentStorage(
                 val position = player.currentMediaItemIndex
                 val positionInTrack = player.currentPosition
                 val mediaItems = player.mediaItems
+                // External files opened via ACTION_VIEW are session-only and never
+                // persisted, so translate the current position into persisted-queue
+                // coordinates (count of non-external items before the current one) —
+                // this keeps LAST_INDEX consistent with the persisted original_index.
+                val persistedPosition =
+                    mediaItems.take(position.coerceAtLeast(0)).count { !it.mediaId.isExternalMediaId() }
                 val shuffleOrder = when (val shuffleOrder = player.exoPlayer.shuffleOrder) {
                     is ImprovedShuffleOrder -> SerializedOrder.serializedFromOrder(shuffleOrder)
                     else -> null
@@ -264,14 +278,24 @@ class PersistentStorage(
                             putInt(REPEAT_MODE, repeatMode)
                             putBoolean(SHUFFLE_MODE, shuffleModeEnabled)
                             putString(SHUFFLE_ORDER, shuffleOrder?.toString())
-                            putInt(LAST_INDEX, position)
+                            putInt(LAST_INDEX, persistedPosition)
                             putLong(POSITION_IN_TRACK, positionInTrack)
                         }
 
                         // Optionally save playlist order
                         if (savePlaylist) {
-                            val queueItems = mediaItems.mapIndexed { index, item ->
-                                QueueEntity(id = item.mediaId, order = index)
+                            // External files (e.g. DocumentsProvider files opened via
+                            // ACTION_VIEW) are session-only — their URI grant is not
+                            // persistent, so they must never be persisted in the queue.
+                            // Orders stay contiguous (external items skipped) so restored
+                            // original_index values map 1:1 to restored positions.
+                            var order = 0
+                            val queueItems = mediaItems.mapNotNull { item ->
+                                if (item.mediaId.isExternalMediaId()) {
+                                    null
+                                } else {
+                                    QueueEntity(id = item.mediaId, order = order++)
+                                }
                             }
                             if (isActive) {
                                 queueDao.replaceQueue(queueItems)

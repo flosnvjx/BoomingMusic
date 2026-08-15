@@ -39,11 +39,14 @@ import com.mardous.booming.data.model.Song
 import com.mardous.booming.extensions.files.getCanonicalPathSafe
 import com.mardous.booming.extensions.hasQ
 import com.mardous.booming.extensions.hasR
+import com.mardous.booming.extensions.media.isExternalMediaId
+import com.mardous.booming.extensions.media.isExternalMediaUri
 import com.mardous.booming.extensions.utilities.getStringSafe
 import com.mardous.booming.extensions.utilities.mapIfValid
 import com.mardous.booming.extensions.utilities.takeOrDefault
 import com.mardous.booming.util.Preferences
 import okhttp3.internal.toLongOrDefault
+import java.io.File
 import java.util.Collections
 import java.util.LinkedHashMap
 
@@ -360,21 +363,15 @@ class RealSongRepository(
      */
     private fun externalUriOf(mediaItem: MediaItem): Uri? {
         mediaItem.localConfiguration?.uri?.let { uri ->
-            if (isExternalUri(uri)) return uri
+            if (uri.isExternalMediaUri()) return uri
         }
         return mediaIdToExternalUri(mediaItem.mediaId)
     }
 
-    private fun mediaIdToExternalUri(mediaId: String): Uri? {
-        val uri = runCatching { Uri.parse(mediaId) }.getOrNull() ?: return null
-        return uri.takeIf { isExternalUri(it) }
-    }
-
-    private fun isExternalUri(uri: Uri): Boolean = when (uri.scheme) {
-        ContentResolver.SCHEME_FILE -> true
-        ContentResolver.SCHEME_CONTENT -> uri.authority != MediaStore.AUTHORITY
-        else -> false
-    }
+    private fun mediaIdToExternalUri(mediaId: String): Uri? =
+        mediaId.takeIf { it.isExternalMediaId() }?.let {
+            runCatching { Uri.parse(it) }.getOrNull()
+        }
 
     /** Returns the external [Song] for [uri], building and caching it on first use. */
     private fun externalSong(uri: Uri): Song? {
@@ -388,6 +385,23 @@ class RealSongRepository(
     }
 
     /**
+     * Whether [uri] can actually be read right now. External files are session-only
+     * (the ACTION_VIEW grant is transient), so after an app restart the provider can
+     * no longer be read: such URIs must not resolve into (unplayable) songs.
+     */
+    private fun isUriReadable(uri: Uri): Boolean = try {
+        when (uri.scheme) {
+            ContentResolver.SCHEME_CONTENT ->
+                context.contentResolver.openFileDescriptor(uri, "r")?.use { true } ?: false
+            ContentResolver.SCHEME_FILE -> File(uri.path ?: "").canRead()
+            else -> false
+        }
+    } catch (e: Exception) {
+        Log.e(TAG, "Failed to open Uri for reading: $uri", e)
+        false
+    }
+
+    /**
      * Builds a playable [Song] for a file that MediaStore does not index (e.g. an audio
      * file opened through a DocumentsProvider). The raw content URI is streamed directly
      * by the player; metadata is taken from [OpenableColumns.DISPLAY_NAME] and, when
@@ -395,6 +409,12 @@ class RealSongRepository(
      * when the URI cannot be inspected at all.
      */
     private fun externalSongFromUri(uri: Uri): Song = runCatching {
+        // Session-only files have no persistent URI grant: if the URI cannot be read
+        // right now (e.g. after an app restart the transient ACTION_VIEW grant is gone),
+        // do not build a song — the item must resolve as missing and be dropped instead
+        // of persisting in the queue as a dead, unplayable entry.
+        if (!isUriReadable(uri)) return@runCatching Song.emptySong
+
         val contentInfo = if (uri.scheme == ContentResolver.SCHEME_CONTENT) {
             getDisplayNameAndSize(uri)
         } else {

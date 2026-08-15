@@ -21,6 +21,7 @@ import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
+import android.provider.MediaStore
 import android.provider.MediaStore.Audio.AlbumColumns
 import android.provider.MediaStore.MediaColumns
 import androidx.core.content.contentValuesOf
@@ -128,3 +129,22 @@ private val ARTICLES_BY_LANGUAGE = mapOf(
     "pt" to listOf("o", "a", "os", "as", "um", "uma"),
     "nl" to listOf("de", "het", "een")
 )
+
+/**
+ * Whether this [Uri] refers to an external file (a `content://` non-MediaStore URI or a
+ * `file://` URI) that MediaStore does not index, e.g. a DocumentsProvider file opened
+ * via ACTION_VIEW.
+ */
+fun Uri.isExternalMediaUri(): Boolean = when (scheme) {
+    ContentResolver.SCHEME_FILE -> true
+    ContentResolver.SCHEME_CONTENT -> authority != MediaStore.AUTHORITY
+    else -> false
+}
+
+/**
+ * Whether this mediaId identifies an external file. External files are session-only:
+ * their URI grant is not persistent, so they must never be persisted in the queue
+ * across restarts.
+ */
+fun String.isExternalMediaId(): Boolean =
+    runCatching { toUri() }.getOrNull()?.isExternalMediaUri() == true
