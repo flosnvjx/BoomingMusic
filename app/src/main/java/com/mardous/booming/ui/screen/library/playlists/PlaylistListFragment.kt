@@ -109,6 +109,9 @@ class PlaylistListFragment : AbsRecyclerViewCustomGridSizeFragment<PlaylistAdapt
     override fun onCreateMenu(menu: Menu, inflater: MenuInflater) {
         super.onCreateMenu(menu, inflater)
         menu.removeItem(R.id.action_view_type)
+        // "Add from file…" is a library-scope action; playlists have their own
+        // add/import entries, so hide it here to avoid UX ambiguity.
+        menu.removeItem(R.id.action_add_external_song)
         menu.add(0, R.id.action_new_playlist, 0, R.string.new_playlist_title)
         menu.add(0, R.id.action_import_playlist, 0, R.string.action_import_playlist)
         PlaylistSortMode.AllPlaylists.createMenu(menu)
