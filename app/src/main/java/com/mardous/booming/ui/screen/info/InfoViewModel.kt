@@ -1,6 +1,8 @@
 package com.mardous.booming.ui.screen.info
 
 import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.liveData
@@ -84,13 +86,24 @@ class InfoViewModel(private val repository: Repository) : ViewModel() {
             val replayGain = song.replayGainStr(context)
 
             val metadataReader = MetadataReader(song.uri)
+
+            // External songs have no local path (data == ""), so a File-based size
+            // would always read 0; resolve their size from the provider instead.
+            val file = File(song.data)
+            val filePath = file.getPrettyAbsolutePath()
+            val fileSize = if (song.externalUri != null) {
+                externalSongFileSize(context, song.uri, song.size)
+            } else {
+                file.getHumanReadableSize()
+            }
+
             if (!metadataReader.hasMetadata) {
                 SongInfo(
                     playCount = playCount,
                     skipCount = skipCount,
                     lastPlayedDate = lastPlayed,
-                    filePath = File(song.data).getPrettyAbsolutePath(),
-                    fileSize = song.size.asReadableFileSize(),
+                    filePath = filePath,
+                    fileSize = fileSize,
                     trackLength = trackLength,
                     dateModified = dateModified,
                     title = song.title,
@@ -98,10 +111,6 @@ class InfoViewModel(private val repository: Repository) : ViewModel() {
                     replayGain = replayGain
                 )
             } else {
-                val file = File(song.data)
-                val filePath = file.getPrettyAbsolutePath()
-                val fileSize = file.getHumanReadableSize()
-
                 val audioHeaderInfo = getAudioHeader(file.toAudioFile()?.audioHeader, metadataReader)
 
                 val title = metadataReader.first(MetadataReader.TITLE)
@@ -208,6 +217,25 @@ class InfoViewModel(private val repository: Repository) : ViewModel() {
         if (start == -1) return null
         val end = trimmedLines.indexOfLast { it.isNotBlank() }
         return trimmedLines.subList(start, end + 1).joinToString("\n")
+    }
+
+    /**
+     * Resolves the on-disk size of an external song (a provider-backed content URI
+     * without a local file path). Asks the provider for [OpenableColumns.SIZE] first —
+     * the file may have changed since it was imported — and falls back to the size
+     * recorded on the [Song]. Returns null when neither is available so the row is
+     * hidden instead of showing a misleading 0.
+     */
+    private fun externalSongFileSize(context: Context, uri: Uri, recordedSize: Long): String? {
+        val liveSize = runCatching {
+            context.contentResolver
+                .query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)
+                ?.use { cursor ->
+                    if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else null
+                }
+        }.getOrNull()
+        val size = liveSize?.takeIf { it > 0 } ?: recordedSize.takeIf { it > 0 } ?: return null
+        return size.asReadableFileSize()
     }
 
     private fun getAudioHeader(header: AudioHeader?, metadataReader: MetadataReader): AudioHeaderInfo {
