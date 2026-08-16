@@ -13,8 +13,8 @@ queue and now-playing UI, and show up in the notification. External files are
 session-only: the queue entry is not restored after an app restart, and MediaStore-backed
 features (history, play counts, scrobbling, ReplayGain, artwork) are skipped for them.
 
-> **Source snapshot:** behavior verified against the current working tree (post `aa2ddcf6`,
-> 2026-08-15). All code references are `file:line` in `app/src/main/java/`.
+> **Source snapshot:** behavior verified against the current working tree (post `aaf9c1ec`,
+> 2026-08-16). All code references are `file:line` in `app/src/main/java/`.
 
 ---
 
@@ -58,7 +58,7 @@ There is no `ACTION_SEND` / "send to queue" / "play now" audio handling; the
    itself** for `OpenableColumns.DISPLAY_NAME` + `SIZE`
    (`getDisplayNameAndSize`, `SongRepository.kt:326-344`) and search MediaStore for an
    exact display-name+size match (`findSongFromFileProviderUri`, `SongRepository.kt:344-352`).
-5. **External fallback** (`SongRepository.kt:397-432`): if steps 1–4 produce no
+5. **External fallback** (`SongRepository.kt:408-453`): if steps 1–4 produce no
    MediaStore row (unmapped DocumentsProvider, non-indexed `file://`, name+size miss),
    `externalSongFromUri(uri)` builds an **external song** from the raw URI — see §4.
    It is fully `runCatching`-guarded; if even the URI cannot be inspected it returns
@@ -97,13 +97,16 @@ When set, `Song.uri` returns the raw content URI instead of the MediaStore URI (
   artwork to resolve).
 - MediaStore song: as before, `content://media/external/audio/media/<id>` mediaId.
 
-`externalSongFromUri` (`SongRepository.kt:397-432`) builds the external song with:
+`externalSongFromUri` (`SongRepository.kt:408-453`) builds the external song with:
 
-- `id = uri.toString().hashCode().toLong()` (stable per URI within the session; used
-  only as an identity key, never for MediaStore lookups).
+- `id = externalSongId(canonicalUri)` — derived from the **canonicalized** URI
+  (`asExternalIdentityUri`, tree form → document form) via the same negative-band
+  formula the import path uses (`-(EXTERNAL_ID_BASE + hash)`), so a session-only open
+  and an imported song for the same file share one identity; used only as an identity
+  key, never for MediaStore lookups.
 - `title` from `OpenableColumns.DISPLAY_NAME` (extension stripped) with an optional
   in-place `MediaMetadataRetriever` probe (`probeExternalMetadata`,
-  `SongRepository.kt:437-455`) for real title/artist/album/duration; `data = ""`,
+  `SongRepository.kt:463-487`) for real title/artist/album/duration; `data = ""`,
   all other MediaStore fields `-1`/empty.
 - `ExpandedSong` forwards `externalUri` through both constructors
   (`data/model/ExpandedSong.kt:26,43,72`).
@@ -186,8 +189,10 @@ title/artist/duration.
   resolves only MediaStore album art).
 - **No Android Auto/AAOS:** external items are resolved for the in-app controller
   path only; the auto/AAOS complex-path branch does not handle them.
-- **Identity:** external songs use a URI hash as their `Song.id`; `distinctUntilChangedBy`
-  keying and any per-song feature are scoped to the session.
+- **Identity:** external songs use a URI hash as their `Song.id`. The id is derived from
+  the **canonicalized** URI (`asExternalIdentityUri`, tree form → document form), so a
+  session-only open and an imported song for the *same file* share one id;
+  `distinctUntilChangedBy` keying and any per-song feature are scoped to the session.
 - If the metadata probe fails, the subtitle may show `0:00` until ExoPlayer reports the
   real duration; the seek bar is unaffected.
 
@@ -213,6 +218,16 @@ first-class library entries:
   (`external_songs.song_id/album_id`, `SongEntity.id` for `external_uri` rows);
   `MIGRATION_8_9` converts `external_songs.date_added` from milliseconds to seconds
   (MediaStore's `DATE_ADDED` unit, so DateAdded sorting is consistent).
+- **URI identity canonicalization:** the same file can be delivered under two URI
+  strings — the picker returns (and Room stores) the document form
+  `content://<authority>/document/<id>`, while ACTION_VIEW on tree-based providers may
+  hand out the tree form `content://<authority>/tree/<root>/document/<id>`.
+  `String.asExternalIdentityUri()` (`extensions/media/MediaExt.kt`) normalizes the tree
+  form to the document form (preserving the encoded document id verbatim);
+  `songByUri` canonicalizes queries before the Room lookup, and the session probe
+  derives its `Song.id` from the canonical URI — so a session-only open of an imported
+  file resolves to the imported song (real album identity, Go-to-album works), and
+  session-only/imported versions of the same file share one id.
 - **Import flow** (`ui/screen/library/LibraryViewModel.kt` `importExternalSong`):
   dedup via `songsByUri` (rejects files MediaStore already maps or that match a
   MediaStore row by display-name+size), rejects already-imported URIs, inserts the
