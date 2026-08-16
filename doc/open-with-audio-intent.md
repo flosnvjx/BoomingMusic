@@ -194,14 +194,15 @@ title/artist/duration.
 ## 10. Imported external songs (system file picker)
 
 Besides the transient ACTION_VIEW path, users can **permanently import** external audio
-files into the in-app library via the system file picker ("Add from file…" in the library
-menu, `res/menu/menu_library.xml`). Because the picker grant is **persistable**
+files into the in-app library via the system file picker ("Add from file…" in the
+library menu, `res/menu/menu_library.xml`; hidden in the Playlists tab, which has its
+own playlist-scoped add/import entries). Because the picker grant is **persistable**
 (`takePersistableUriPermission`), imported songs survive restarts and behave like
 first-class library entries:
 
-- **Storage:** `ExternalSongEntity` (Room `external_songs` table, PK = uri, DB v8) —
+- **Storage:** `ExternalSongEntity` (Room `external_songs` table, PK = uri, DB v9) —
   `data/local/room/ExternalSongEntity.kt`, `ExternalSongDao`, migrations
-  `MIGRATION_5_6`…`MIGRATION_7_8` (`core/BoomingDatabase.kt`).
+  `MIGRATION_5_6`…`MIGRATION_8_9` (`core/BoomingDatabase.kt`).
 - **Identities:** synthetic stable IDs in a reserved **negative** band
   (`-(EXTERNAL_ID_BASE + hash)`, `EXTERNAL_ID_BASE` = 1e9,
   `data/local/repository/ExternalSongRepository.kt`) — guaranteed disjoint from
@@ -209,14 +210,18 @@ first-class library entries:
   threshold, which the old positive band collided with) and from the -1/-2 sentinels;
   album ids derive from `albumName|albumArtist` (matching MediaStore's album
   semantics). `MIGRATION_7_8` negates previously stored positive ids
-  (`external_songs.song_id/album_id`, `SongEntity.id` for `external_uri` rows).
+  (`external_songs.song_id/album_id`, `SongEntity.id` for `external_uri` rows);
+  `MIGRATION_8_9` converts `external_songs.date_added` from milliseconds to seconds
+  (MediaStore's `DATE_ADDED` unit, so DateAdded sorting is consistent).
 - **Import flow** (`ui/screen/library/LibraryViewModel.kt` `importExternalSong`):
   dedup via `songsByUri` (rejects files MediaStore already maps or that match a
   MediaStore row by display-name+size), rejects already-imported URIs, inserts the
   entity, reloads Songs/Albums. Non-audio or unreadable picks are rejected with a toast.
 - **Library integration:** merged into `Repository.allSongs()` / `searchSongs()`
   (Songs tab + search) and `allAlbums()` / `albumById()` (Albums tab + Go-to-album
-  detail) — `data/local/repository/Repository.kt`. `albumById` routes ids
+  detail) — `data/local/repository/Repository.kt`. `allAlbums()` sorts the merged
+  list with the active `AlbumSortMode`, so imported albums interleave with MediaStore
+  ones under every sort (name/date/count, asc/desc). `albumById` routes ids
   `≤ -EXTERNAL_ID_BASE` to the external store (falling back to MediaStore when the
   Room store has no songs). Artists, genres, years, folders, Home lists, History and
   Most-Played stay MediaStore-only.
@@ -229,11 +234,14 @@ first-class library entries:
 - **Read-only gating:** for `externalUri != null` songs the app hides/disables tag
   editor, delete-from-device, set-as-ringtone, custom cover and go-to-artist/genre
   (`SongAdapter.onPrepareSongMenu`, `MenuItemClickExt` guards,
-  `AbsPlayerFragment.onQuickActionEvent`); album menus gate the same for external
-  albums (identified by their songs' `externalUri`, not by id band). Go-to-album stays
-  enabled.
-- **Remove from library** (song menu): deletes the Room row + playlist snapshots and
-  calls `releaseUriPermission`.
+  `AbsPlayerFragment.onMenuInflated` hides them in the Now-Playing menu,
+  `onQuickActionEvent` blocks them as defense); album menus gate the same for
+  external albums (identified by their songs' `externalUri`, not by id band).
+  Go-to-album stays enabled. The Now-Playing menu (`menu_now_playing.xml`,
+  visibility re-applied on every song change) additionally shows **Set as ringtone**
+  for MediaStore songs and **Remove from library** for imported external songs.
+- **Remove from library** (song menu + Now-Playing menu for imported songs): deletes
+  the Room row + playlist snapshots and calls `releaseUriPermission`.
 - **Unplugged providers (e.g. OTG):** on library load, imported songs whose URI can no
   longer be read (`Context.isUriReadable`) are auto-removed (external_songs row +
   playlist snapshots) — `pruneUnreadable` in `RealExternalSongRepository`.
