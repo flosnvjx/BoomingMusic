@@ -9,6 +9,7 @@ Open-source Android music player (GPL-3.0), inspired by Retro Music Player. Kotl
 - Only one flavor active: `normal` (fdroid flavor is commented out in `app/build.gradle.kts`).
 
 ## Commands
+- **No JRE in this environment — never attempt to run JRE-dependent commands** (`./gradlew`, `java`, `javac`, `kotlinc`, or anything requiring a JVM). The sandbox has no JDK, so such runs fail with `JAVA_HOME is not set` / `Permission denied`. If a step needs confirmation from a JRE-dependent run (build, lint, unit test, etc.), do not execute it — prompt the user to run the exact command manually and report the result back.
 - Build: `./gradlew assemble` (variants `normalDebug` / `normalRelease`; APKs at `app/build/outputs/apk/*/release/BoomingMusic-*.apk`, ABI-split arm64-v8a only)
 - Lint: `./gradlew lint` (CI runs this; `lint { abortOnError = true }`)
 - No test source sets exist — there is no test command.
