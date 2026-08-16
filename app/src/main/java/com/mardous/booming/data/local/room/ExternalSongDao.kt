@@ -51,6 +51,9 @@ interface ExternalSongDao {
     @Query("DELETE FROM external_songs WHERE uri = :uri")
     suspend fun deleteByUri(uri: String)
 
+    @Query("DELETE FROM external_songs WHERE uri IN (:uris)")
+    suspend fun deleteByUris(uris: List<String>)
+
     @Query("DELETE FROM external_songs")
     suspend fun clear()
 }

@@ -97,6 +97,9 @@ interface PlaylistDao {
     @Query("DELETE FROM SongEntity WHERE external_uri = :externalUri")
     suspend fun deleteSongsByExternalUri(externalUri: String)
 
+    @Query("DELETE FROM SongEntity WHERE external_uri IN (:externalUris)")
+    suspend fun deleteSongsByExternalUris(externalUris: List<String>)
+
     @RewriteQueriesToDropUnusedColumns
     @Query("""
     SELECT * FROM SongEntity,

@@ -17,6 +17,7 @@
 
 package com.mardous.booming.data.local.repository
 
+import android.content.ContentResolver
 import android.content.Context
 import com.mardous.booming.data.local.room.ExternalSongDao
 import com.mardous.booming.data.local.room.ExternalSongEntity
@@ -114,10 +115,21 @@ class RealExternalSongRepository(
     }
 
     override suspend fun pruneUnreadable(): List<String> = withContext(Dispatchers.IO) {
-        val removed = dao.all().filter { !context.isUriReadable(it.uri.toUri()) }.map { it.uri }
-        removed.forEach {
-            dao.deleteByUri(it)
-            playlistDao.deleteSongsByExternalUri(it)
+        // One cheap IPC: the app's persisted URI grants. A content URI without a grant can
+        // never be read, so it is pruned without probing the (possibly hung/dead) provider;
+        // only granted content URIs (and file URIs, which need no grant) get the probe.
+        val persistedGrantUris = context.contentResolver.persistedUriPermissions
+            .map { it.uri }
+            .toHashSet()
+        val removed = dao.all().filter { entity ->
+            val uri = entity.uri.toUri()
+            val mayBeReadable = uri.scheme == ContentResolver.SCHEME_FILE ||
+                (uri.scheme == ContentResolver.SCHEME_CONTENT && uri in persistedGrantUris)
+            !mayBeReadable || !context.isUriReadable(uri)
+        }.map { it.uri }
+        if (removed.isNotEmpty()) {
+            dao.deleteByUris(removed)
+            playlistDao.deleteSongsByExternalUris(removed)
         }
         removed
     }
