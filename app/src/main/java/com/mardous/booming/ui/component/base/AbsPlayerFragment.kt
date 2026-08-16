@@ -87,6 +87,7 @@ import com.mardous.booming.ui.component.menu.onSongMenu
 import com.mardous.booming.ui.dialogs.WebSearchDialog
 import com.mardous.booming.ui.dialogs.playlists.AddToPlaylistDialog
 import com.mardous.booming.ui.dialogs.songs.DeleteSongsDialog
+import com.mardous.booming.ui.dialogs.songs.SetRingtoneDialog
 import com.mardous.booming.ui.dialogs.songs.ShareSongDialog
 import com.mardous.booming.ui.screen.MainActivity
 import com.mardous.booming.ui.screen.equalizer.EqualizerFragment
@@ -130,6 +131,9 @@ abstract class AbsPlayerFragment(@LayoutRes layoutRes: Int) : Fragment(layoutRes
 
     private var colorAnimatorSet: AnimatorSet? = null
 
+    /** The currently inflated Now-Playing menu; visibility is re-applied on song change. */
+    private var nowPlayingMenu: Menu? = null
+
     @CallSuper
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -144,6 +148,9 @@ abstract class AbsPlayerFragment(@LayoutRes layoutRes: Int) : Fragment(layoutRes
         viewLifecycleOwner.launchAndRepeatWithViewLifecycle {
             playerViewModel.currentSongFlow.collect {
                 updateIsFavorite(withAnim = false)
+                // Re-apply Now-Playing menu visibility when the song changes (the menu is
+                // built once per fragment view and would otherwise keep stale entries).
+                nowPlayingMenu?.let { menu -> onMenuInflated(menu) }
             }
         }
         viewLifecycleOwner.launchAndRepeatWithViewLifecycle {
@@ -187,14 +194,19 @@ abstract class AbsPlayerFragment(@LayoutRes layoutRes: Int) : Fragment(layoutRes
             if (view is Toolbar) {
                 view.inflateMenu(R.menu.menu_now_playing, this) {
                     onMenuInflated(it)
+                    nowPlayingMenu = it
                 }
             } else {
                 val popupMenu = newPopupMenu(view, R.menu.menu_now_playing) {
                     onMenuInflated(it)
                 }.also { popupMenu ->
+                    nowPlayingMenu = popupMenu.menu
                     popupMenu.setOnMenuItemClickListener { onMenuItemClick(it) }
                 }
                 view.setOnClickListener {
+                    // The popup is created once per view; re-apply the current-song
+                    // visibility before every show so it never goes stale.
+                    onMenuInflated(popupMenu.menu)
                     popupMenu.show()
                 }
                 return popupMenu
@@ -223,6 +235,12 @@ abstract class AbsPlayerFragment(@LayoutRes layoutRes: Int) : Fragment(layoutRes
                 menu.findItem(R.id.action_go_to_album)?.isVisible = false
             }
         } else {
+            // MediaStore songs: restore everything the external branch may have hidden
+            // (isVisible=false persists on the item until set true again).
+            menu.findItem(R.id.action_tag_editor)?.isVisible = true
+            menu.findItem(R.id.action_delete_from_device)?.isVisible = true
+            menu.findItem(R.id.action_set_as_ringtone)?.isVisible = true
+            menu.findItem(R.id.action_go_to_album)?.isVisible = true
             menu.findItem(R.id.action_remove_from_library)?.isVisible = false
         }
     }
@@ -241,6 +259,12 @@ abstract class AbsPlayerFragment(@LayoutRes layoutRes: Int) : Fragment(layoutRes
 
             R.id.action_favorite -> {
                 onQuickActionEvent(NowPlayingAction.ToggleFavoriteState)
+                true
+            }
+
+            R.id.action_set_as_ringtone -> {
+                SetRingtoneDialog.create(currentSong)
+                    .show(childFragmentManager, "SET_RINGTONE")
                 true
             }
 
