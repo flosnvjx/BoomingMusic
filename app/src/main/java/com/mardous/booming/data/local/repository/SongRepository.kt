@@ -178,12 +178,18 @@ class RealSongRepository(
         // are resolved directly and keep their position in the list. MediaItems whose
         // mediaId (or surviving localConfiguration.uri) is an external content/file URI are
         // resolved the same way, since tags do not survive the controller->session hop.
-        val resultSongs = mutableListOf<Song>()
-        val remaining = mutableListOf<MediaItem>()
-        for (item in mediaItems) {
+        //
+        // The resolved songs MUST keep the exact order of [mediaItems]. Callers rely on
+        // positional correspondence (queue display rows, session setMediaItems startIndex),
+        // so external songs cannot be hoisted ahead of the MediaStore ones — in a mixed
+        // queue (e.g. an imported album alongside MediaStore songs) that would shift every
+        // MediaStore song by the number of external songs.
+        val resultSongs = arrayOfNulls<Song>(mediaItems.size)
+        val remaining = mutableListOf<Int>()
+        for ((index, item) in mediaItems.withIndex()) {
             val taggedSong = (item.localConfiguration?.tag as? Song)?.takeIf { it != Song.emptySong }
             if (taggedSong != null) {
-                resultSongs.add(taggedSong)
+                resultSongs[index] = taggedSong
             } else {
                 val externalUriForItem = externalUriOf(item)
                 val externalSongForItem = externalUriForItem?.let { uri ->
@@ -193,15 +199,15 @@ class RealSongRepository(
                     externalSongRepository.songByUri(uri.toString()) ?: externalSong(uri)
                 }
                 if (externalSongForItem != null) {
-                    resultSongs.add(externalSongForItem)
+                    resultSongs[index] = externalSongForItem
                 } else {
-                    remaining.add(item)
+                    remaining.add(index)
                 }
             }
         }
-        if (remaining.isEmpty()) return resultSongs to emptyList()
+        if (remaining.isEmpty()) return resultSongs.filterNotNull() to emptyList()
 
-        val ids = remaining.map { it.mediaId }
+        val ids = remaining.map { index -> mediaItems[index].mediaId }
         val allSongs = buildList {
             ids.chunked(900).forEach { chunk ->
                 val selection = "${AudioColumns._ID} IN (${chunk.joinToString(",") { "?" }})"
@@ -212,15 +218,16 @@ class RealSongRepository(
 
         val songMap = allSongs.associateBy { it.id.toString() }
         val missing = mutableListOf<MediaItem>()
-        for (item in remaining) {
+        for (index in remaining) {
+            val item = mediaItems[index]
             val song = songMap[item.mediaId]
             if (song != null && song != Song.emptySong) {
-                resultSongs.add(song)
+                resultSongs[index] = song
             } else {
                 missing.add(item)
             }
         }
-        return resultSongs to missing
+        return resultSongs.filterNotNull() to missing
     }
 
     override suspend fun songByMediaItem(mediaItem: MediaItem?): Song {

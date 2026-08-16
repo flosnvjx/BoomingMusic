@@ -31,47 +31,62 @@ class LibraryProvider(private val repository: Repository) {
         mediaItems: List<MediaItem>,
         tryToResolveComplexPaths: Boolean = false
     ): List<MediaItem> {
-        val resolvedMediaItems = mediaItems.filter { item -> item.localConfiguration != null }
-            .toMutableList()
-        if (resolvedMediaItems.size == mediaItems.size) {
-            return resolvedMediaItems
+        // Items that already carry a local configuration are playable as-is.
+        val preResolved = mediaItems.filter { item -> item.localConfiguration != null }
+        if (preResolved.size == mediaItems.size) {
+            return preResolved
         }
-        val (songs, missingMediaItems) = (mediaItems - resolvedMediaItems.toSet()).let { invalidItems ->
-            repository.songsByMediaItems(invalidItems)
-        }
-        if (songs.isNotEmpty()) {
-            resolvedMediaItems.addAll(songs.toMediaItems())
-        }
-        if (missingMediaItems.isNotEmpty()) {
-            // External files (e.g. opened via ACTION_VIEW from a DocumentsProvider that
-            // MediaStore does not index) are carried by their content URI mediaId. Rebuild
-            // a playable MediaItem from the URI before the auto/AAOS path handling, which
-            // cannot resolve them.
-            val externalItems = missingMediaItems.filter { item -> item.mediaId.isExternalMediaId() }
-            externalItems.forEach { item ->
+
+        val invalidItems = mediaItems - preResolved.toSet()
+        val (songs, missingMediaItems) = repository.songsByMediaItems(invalidItems)
+
+        // External files (e.g. opened via ACTION_VIEW from a DocumentsProvider that
+        // MediaStore does not index) are carried by their content URI mediaId. Rebuild
+        // a playable MediaItem from the URI before the auto/AAOS path handling, which
+        // cannot resolve them.
+        val missingSet = missingMediaItems.toHashSet()
+        val externalResolved = HashMap<MediaItem, MediaItem>()
+        missingMediaItems.filter { item -> item.mediaId.isExternalMediaId() }
+            .forEach { item ->
                 val song = repository.songByMediaItem(item)
                 if (song != Song.emptySong && song.externalUri != null) {
-                    resolvedMediaItems.add(song.toMediaItem())
+                    externalResolved[item] = song.toMediaItem()
                 }
             }
 
-            val remainingMissing = missingMediaItems - externalItems.toSet()
-            if (remainingMissing.isNotEmpty()) {
-                val complexMediaItems = if (tryToResolveComplexPaths) {
-                    remainingMissing.filter { item -> item.mediaId.contains(":") }
-                } else {
-                    emptyList()
+        // Merge every 1:1 resolution back into the exact order of [mediaItems] so the
+        // session timeline and the regenerated queue keep the requested positions —
+        // external songs must not be hoisted ahead of MediaStore songs, or every
+        // subsequent item (and the setMediaItems startIndex) would shift by the number
+        // of external songs.
+        val resolvedMediaItems = ArrayList<MediaItem>(mediaItems.size)
+        var songIndex = 0
+        for (item in mediaItems) {
+            when {
+                item.localConfiguration != null -> resolvedMediaItems.add(item)
+                item in externalResolved -> resolvedMediaItems.add(externalResolved.getValue(item))
+                item !in missingSet && songIndex < songs.size ->
+                    resolvedMediaItems.add(songs[songIndex++].toMediaItem())
+                // else: unresolved — dropped (or expanded by the complex path below).
+            }
+        }
+
+        val remainingMissing = missingMediaItems.filterNot { item -> item.mediaId.isExternalMediaId() }
+        if (remainingMissing.isNotEmpty()) {
+            val complexMediaItems = if (tryToResolveComplexPaths) {
+                remainingMissing.filter { item -> item.mediaId.contains(":") }
+            } else {
+                emptyList()
+            }
+            if (complexMediaItems.isNotEmpty()) {
+                getMediaItemsForAAOSPlayback(complexMediaItems)?.first?.forEach {
+                    resolvedMediaItems.add(it)
                 }
-                if (complexMediaItems.isNotEmpty()) {
-                    getMediaItemsForAAOSPlayback(complexMediaItems)?.first?.forEach {
-                        resolvedMediaItems.add(it)
-                    }
-                } else {
-                    remainingMissing.forEach {
-                        getPlayableSongs(it.mediaId).let { playableSongs ->
-                            if (playableSongs.isNotEmpty()) {
-                                resolvedMediaItems.addAll(playableSongs.toMediaItems())
-                            }
+            } else {
+                remainingMissing.forEach {
+                    getPlayableSongs(it.mediaId).let { playableSongs ->
+                        if (playableSongs.isNotEmpty()) {
+                            resolvedMediaItems.addAll(playableSongs.toMediaItems())
                         }
                     }
                 }
