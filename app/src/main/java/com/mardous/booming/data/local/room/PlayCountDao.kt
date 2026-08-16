@@ -37,6 +37,12 @@ interface PlayCountDao {
     @Query("DELETE FROM PlayCountEntity WHERE id IN(:songIds)")
     suspend fun deleteSongsInPlayCount(songIds: List<Long>)
 
+    @Query("DELETE FROM PlayCountEntity WHERE external_uri = :uri")
+    suspend fun deleteByExternalUri(uri: String)
+
+    @Query("DELETE FROM PlayCountEntity WHERE external_uri IN (:uris)")
+    suspend fun deleteByExternalUris(uris: List<String>)
+
     @Query("SELECT * FROM PlayCountEntity WHERE id IN (:songIds)")
     suspend fun findSongsExistInPlayCount(songIds: List<Long>): List<PlayCountEntity>
 

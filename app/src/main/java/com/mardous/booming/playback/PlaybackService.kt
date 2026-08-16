@@ -741,7 +741,12 @@ class PlaybackService :
                     launch { repository.updateNowPlaying(ScrobblingService.ListenBrainz, newSong) }
                 }
             }
-            if (previousSong != Song.emptySong && previousSong.externalUri == null) {
+            // Play statistics (play count, skip count, last played) are recorded for
+            // MediaStore songs and for imported external songs (persistable grant,
+            // stable synthetic id). Session-only external songs are excluded: their
+            // transient grant must never be persisted, and their play_count row would
+            // become a dead entry once the grant expires.
+            if (previousSong != Song.emptySong && !previousSong.isSessionOnlyExternal) {
                 val timestampMillis = System.currentTimeMillis()
                 val timestampSeconds = (timestampMillis / 1000)
                 if (shouldBumpPlayCount) {
@@ -749,11 +754,15 @@ class PlaybackService :
                         song = previousSong,
                         timePlayed = timestampMillis
                     )
-                    if (NetworkFeature.Lastfm.Scrobbling.isAvailable(this@PlaybackService)) {
-                        launch { repository.scrobble(ScrobblingService.Lastfm, previousSong, timestampSeconds) }
-                    }
-                    if (NetworkFeature.ListenBrainz.Scrobbling.isAvailable(this@PlaybackService)) {
-                        launch { repository.scrobble(ScrobblingService.ListenBrainz, previousSong, timestampSeconds) }
+                    // Scrobbling stays MediaStore-only: external songs have no provider
+                    // identity for Last.fm/ListenBrainz to resolve.
+                    if (previousSong.externalUri == null) {
+                        if (NetworkFeature.Lastfm.Scrobbling.isAvailable(this@PlaybackService)) {
+                            launch { repository.scrobble(ScrobblingService.Lastfm, previousSong, timestampSeconds) }
+                        }
+                        if (NetworkFeature.ListenBrainz.Scrobbling.isAvailable(this@PlaybackService)) {
+                            launch { repository.scrobble(ScrobblingService.ListenBrainz, previousSong, timestampSeconds) }
+                        }
                     }
                 } else if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) {
                     repository.insertOrIncrementSkipCount(previousSong)

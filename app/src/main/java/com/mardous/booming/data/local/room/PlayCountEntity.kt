@@ -45,6 +45,8 @@ data class PlayCountEntity(
     val albumArtistName: String?,
     @ColumnInfo(name = "genre_name")
     val genreName: String?,
+    @ColumnInfo(name = "external_uri")
+    val externalUri: String? = null,
     @ColumnInfo(name = "time_played")
     var timePlayed: Long,
     @ColumnInfo(name = "play_count")

@@ -160,7 +160,8 @@ private val roomModule = module {
                 BoomingDatabase.MIGRATION_5_6,
                 BoomingDatabase.MIGRATION_6_7,
                 BoomingDatabase.MIGRATION_7_8,
-                BoomingDatabase.MIGRATION_8_9
+                BoomingDatabase.MIGRATION_8_9,
+                BoomingDatabase.MIGRATION_9_10
             )
             .build()
     }
@@ -216,7 +217,12 @@ private val dataModule = module {
     } bind SongRepository::class
 
     single {
-        RealExternalSongRepository(context = get(), dao = get(), playlistDao = get())
+        RealExternalSongRepository(
+            context = get(),
+            dao = get(),
+            playlistDao = get(),
+            playCountDao = get()
+        )
     } bind ExternalSongRepository::class
 
     single {

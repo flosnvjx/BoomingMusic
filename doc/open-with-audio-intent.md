@@ -248,8 +248,19 @@ URI), imported songs survive restarts and behave like first-class library entrie
   list with the active `AlbumSortMode`, so imported albums interleave with MediaStore
   ones under every sort (name/date/count, asc/desc). `albumById` routes ids
   `≤ -EXTERNAL_ID_BASE` to the external store (falling back to MediaStore when the
-  Room store has no songs). Artists, genres, years, folders, Home lists, History and
-  Most-Played stay MediaStore-only.
+  Room store has no songs). Artists, genres, years, folders, Home lists and
+  History stay MediaStore-only.
+- **Play statistics:** imported external songs now record play count, skip count and
+  last played like MediaStore songs — `PlaybackService.onMediaItemTransition` gates
+  stats on `!isSessionOnlyExternal` (so ACTION_VIEW session-only plays still write
+  nothing), and the `PlayCountEntity` table gained an `external_uri` column (DB v10)
+  so a stats row round-trips to a playable `Song` (Most-Played / TOP_TRACKS via
+  `SmartRepository.playCountSongs`, song-detail counts via
+  `InfoViewModel.findSongInPlayCount`). `SmartRepository.fromPlayCountToSongs` keeps
+  external rows (empty `data` path) instead of pruning them as missing files.
+  Removing an import purges its stats row (`remove`/`pruneUnreadable` →
+  `PlayCountDao.deleteByExternalUri(s)`). Scrobbling (Last.fm/ListenBrainz) and
+  history stay MediaStore-only.
 - **Playlists & Favorites:** `SongEntity` gained an `external_uri` column (DB v6), so
   imported songs round-trip through user playlists and Favorites and play via the
   external `toMediaItem` path. Session-only external songs are **gated from these
@@ -272,7 +283,8 @@ URI), imported songs survive restarts and behave like first-class library entrie
   visibility re-applied on every song change) additionally shows **Set as ringtone**
   for MediaStore songs and **Remove from library** for imported external songs.
 - **Remove from library** (song menu + Now-Playing menu for imported songs): deletes
-  the Room row + playlist snapshots and calls `releaseUriPermission`.
+  the Room row + playlist snapshots + play-count stats and calls `releaseUriPermission`.
 - **Unplugged providers (e.g. OTG):** on library load, imported songs whose URI can no
   longer be read (`Context.isUriReadable`) are auto-removed (external_songs row +
-  playlist snapshots) — `pruneUnreadable` in `RealExternalSongRepository`.
+  playlist snapshots + play-count stats) — `pruneUnreadable` in
+  `RealExternalSongRepository`.

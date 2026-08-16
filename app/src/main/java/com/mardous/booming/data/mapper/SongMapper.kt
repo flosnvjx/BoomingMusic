@@ -141,7 +141,8 @@ fun PlayCountEntity.toSong(): Song {
         artistId = artistId,
         artistName = artistName,
         albumArtistName = albumArtistName,
-        genreName = genreName
+        genreName = genreName,
+        externalUri = externalUri
     )
 }
 
@@ -182,6 +183,7 @@ fun Song.toPlayCount(timePlayed: Long = -1, playCount: Int = 0, skipCount: Int =
         artistName = artistName,
         albumArtistName = albumArtistName,
         genreName = genreName,
+        externalUri = externalUri,
         timePlayed = timePlayed,
         playCount = playCount,
         skipCount = skipCount

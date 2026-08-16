@@ -73,7 +73,12 @@ class RealSmartRepository(
 ) : SmartRepository {
 
     override suspend fun topAlbums(): List<Album> =
-        albumRepository.splitIntoAlbums(playCountSongs(), sorted = false)
+        // Home suggestions stay MediaStore-only; imported external songs surface in
+        // Most-Played (playCountSongs) and song detail, not in Top Albums/Top Artists.
+        albumRepository.splitIntoAlbums(
+            playCountSongs().filter { it.externalUri == null },
+            sorted = false
+        )
 
     override suspend fun topAlbumArtists(): List<Artist> =
         artistRepository.splitIntoAlbumArtists(topAlbums())
@@ -196,7 +201,11 @@ class RealSmartRepository(
     }
 
     private suspend fun List<PlayCountEntity>.fromPlayCountToSongs(): List<Song> = withContext(IO) {
-        val (deletedTracks, validTracks) = partition { it.id == -1L || !File(it.data).exists() }
+        // Imported external songs have no data path (data is empty) but stay valid via
+        // their persisted content URI; only MediaStore rows are pruned by file existence.
+        val (deletedTracks, validTracks) = partition {
+            it.id == -1L || (it.externalUri == null && !File(it.data).exists())
+        }
         if (deletedTracks.isNotEmpty()) {
             deletedTracks.map { it.id }
                 .chunked(MAX_ITEMS_PER_CHUNK)

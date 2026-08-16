@@ -21,6 +21,7 @@ import android.content.ContentResolver
 import android.content.Context
 import com.mardous.booming.data.local.room.ExternalSongDao
 import com.mardous.booming.data.local.room.ExternalSongEntity
+import com.mardous.booming.data.local.room.PlayCountDao
 import com.mardous.booming.data.local.room.PlaylistDao
 import com.mardous.booming.data.mapper.toSong
 import com.mardous.booming.data.model.Album
@@ -78,7 +79,8 @@ interface ExternalSongRepository {
 class RealExternalSongRepository(
     private val context: Context,
     private val dao: ExternalSongDao,
-    private val playlistDao: PlaylistDao
+    private val playlistDao: PlaylistDao,
+    private val playCountDao: PlayCountDao
 ) : ExternalSongRepository {
 
     override suspend fun all(): List<Song> = withContext(Dispatchers.IO) {
@@ -122,6 +124,7 @@ class RealExternalSongRepository(
     override suspend fun remove(uri: String) = withContext(Dispatchers.IO) {
         dao.deleteByUri(uri)
         playlistDao.deleteSongsByExternalUri(uri)
+        playCountDao.deleteByExternalUri(uri)
     }
 
     override suspend fun pruneUnreadable(): List<String> = withContext(Dispatchers.IO) {
@@ -140,6 +143,7 @@ class RealExternalSongRepository(
         if (removed.isNotEmpty()) {
             dao.deleteByUris(removed)
             playlistDao.deleteSongsByExternalUris(removed)
+            playCountDao.deleteByExternalUris(removed)
         }
         removed
     }

@@ -18,7 +18,7 @@ import com.mardous.booming.data.local.room.ExternalSongEntity
         LyricsEntity::class,
         ExternalSongEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class BoomingDatabase : RoomDatabase() {
@@ -98,6 +98,15 @@ abstract class BoomingDatabase : RoomDatabase() {
                 // date_added was stored in milliseconds; MediaStore's DATE_ADDED is in
                 // seconds. Convert existing rows so DateAdded sorting is consistent.
                 db.execSQL("UPDATE external_songs SET date_added = date_added / 1000")
+            }
+        }
+
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Imported external songs now record play statistics (play count, skip
+                // count, last played) in the play_count table; external_uri keeps the row
+                // resolvable/playable (Most-Played) and purgable on import removal.
+                db.execSQL("ALTER TABLE PlayCountEntity ADD COLUMN external_uri TEXT")
             }
         }
     }
