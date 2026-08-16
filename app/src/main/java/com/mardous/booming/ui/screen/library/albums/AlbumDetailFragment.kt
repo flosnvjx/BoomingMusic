@@ -305,6 +305,14 @@ class AlbumDetailFragment : AbsMainActivityFragment(R.layout.fragment_album_deta
         menuItem: MenuItem,
         sharedElements: Array<Pair<View, String>>?
     ): Boolean {
+        if (menuItem.itemId == R.id.action_remove_from_library) {
+            // Removing an imported song invalidates this screen's album — reload it when
+            // the removal completes so the song disappears from the album view immediately.
+            libraryViewModel.removeExternalSong(song).invokeOnCompletion {
+                detailViewModel.loadAlbumDetail()
+            }
+            return true
+        }
         return song.onSongMenu(this, menuItem)
     }
 

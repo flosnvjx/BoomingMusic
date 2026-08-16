@@ -68,6 +68,7 @@ import com.mardous.booming.ui.screen.library.home.SuggestedResult
 import com.mardous.booming.util.Preferences
 import com.mardous.booming.util.StorageUtil
 import kotlinx.coroutines.Dispatchers.IO
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -215,7 +216,7 @@ class LibraryViewModel(
         }
 
     /** Removes an imported external song from the in-app library (and its playlist snapshots). */
-    fun removeExternalSong(song: Song) = viewModelScope.launch(IO) {
+    fun removeExternalSong(song: Song): Job = viewModelScope.launch(IO) {
         song.externalUri?.let { uri ->
             externalSongRepository.remove(uri)
             runCatching {
