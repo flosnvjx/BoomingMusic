@@ -70,6 +70,7 @@ import com.mardous.booming.extensions.launchAndRepeatWithViewLifecycle
 import com.mardous.booming.extensions.media.albumArtistName
 import com.mardous.booming.extensions.media.displayArtistName
 import com.mardous.booming.extensions.media.isArtistNameUnknown
+import com.mardous.booming.extensions.media.isSessionOnlyExternal
 import com.mardous.booming.extensions.navigation.albumDetailArgs
 import com.mardous.booming.extensions.navigation.artistDetailArgs
 import com.mardous.booming.extensions.navigation.findActivityNavController
@@ -569,6 +570,10 @@ abstract class AbsPlayerFragment(@LayoutRes layoutRes: Int) : Fragment(layoutRes
             }
 
             NowPlayingAction.AddToPlaylist -> {
+                if (currentSong.isSessionOnlyExternal) {
+                    showToast(R.string.external_song_not_in_library)
+                    return true
+                }
                 AddToPlaylistDialog.create(currentSong)
                     .show(childFragmentManager, "ADD_TO_PLAYLIST")
                 true

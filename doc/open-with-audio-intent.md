@@ -227,7 +227,13 @@ first-class library entries:
   Most-Played stay MediaStore-only.
 - **Playlists & Favorites:** `SongEntity` gained an `external_uri` column (DB v6), so
   imported songs round-trip through user playlists and Favorites and play via the
-  external `toMediaItem` path.
+  external `toMediaItem` path. Session-only external songs are **gated from these
+  durable writes** (`Song.isSessionOnlyExternal` in `extensions/media/MediaExt.kt`):
+  add-to-playlist (song menu, multi-select, Now-Playing) shows a toast telling the
+  user to import the file first, and the Favorites toggle
+  (`PlaybackService.toggleFavorite`, covering the Now-Playing heart, notification and
+  widgets) is a no-op — otherwise their snapshot row would persist forever as an
+  unplayable dead entry after the transient grant expires.
 - **Queue persistence:** `PersistentStorage` persists imported external mediaIds
   (readable on restart via the persistable grant) but still excludes session-only ones;
   the persisted order/`LAST_INDEX` translation uses the same predicate.

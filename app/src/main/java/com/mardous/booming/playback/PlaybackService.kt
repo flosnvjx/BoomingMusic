@@ -83,6 +83,7 @@ import com.mardous.booming.data.model.network.NetworkFeature
 import com.mardous.booming.data.model.network.ScrobblingService
 import com.mardous.booming.extensions.isBluetoothA2dpConnected
 import com.mardous.booming.extensions.isBluetoothA2dpDisconnected
+import com.mardous.booming.extensions.media.isSessionOnlyExternal
 import com.mardous.booming.extensions.showToast
 import com.mardous.booming.playback.equalizer.EqualizerManager
 import com.mardous.booming.playback.library.LibraryProvider
@@ -854,6 +855,9 @@ class PlaybackService :
 
         withContext(IO) {
             val song = repository.songByMediaItem(currentMediaItem)
+            // Session-only external files (transient grant) can't be persisted durably —
+            // don't write them to Favorites (a Room playlist).
+            if (song.isSessionOnlyExternal) return@withContext
             repository.toggleFavorite(song)
         }
 

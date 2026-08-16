@@ -27,6 +27,7 @@ import android.provider.MediaStore.MediaColumns
 import androidx.core.content.contentValuesOf
 import androidx.core.net.toUri
 import com.mardous.booming.R
+import com.mardous.booming.data.model.Song
 import com.mardous.booming.core.sort.SortMode
 import com.mardous.booming.extensions.hasQ
 import com.mardous.booming.extensions.plurals
@@ -162,3 +163,12 @@ fun Context.isUriReadable(uri: Uri): Boolean = try {
 } catch (e: Exception) {
     false
 }
+
+/**
+ * A session-only external song: opened via ACTION_VIEW (transient grant), not imported
+ * into the library. Its `albumId` stays `-1L` (the probe marker), whereas imported
+ * external songs carry a negative-band album id. Such songs cannot be persisted
+ * durably — anything that writes them to Room (playlists, Favorites) must be gated.
+ */
+val Song.isSessionOnlyExternal: Boolean
+    get() = externalUri != null && albumId == -1L

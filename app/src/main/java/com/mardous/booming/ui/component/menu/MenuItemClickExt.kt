@@ -31,6 +31,7 @@ import com.mardous.booming.data.model.Artist
 import com.mardous.booming.data.model.Song
 import com.mardous.booming.extensions.getShareSongIntent
 import com.mardous.booming.extensions.getShareSongsIntent
+import com.mardous.booming.extensions.media.isSessionOnlyExternal
 import com.mardous.booming.extensions.navigation.*
 import com.mardous.booming.extensions.showToast
 import com.mardous.booming.extensions.toChooser
@@ -99,6 +100,12 @@ fun Song.onSongMenu(
         }
 
         R.id.action_add_to_playlist -> {
+            // Session-only external files (transient grant) can't be persisted durably —
+            // block adding them to a playlist instead of leaving a dead snapshot row.
+            if (this.isSessionOnlyExternal) {
+                fragment.showToast(R.string.external_song_not_in_library)
+                return true
+            }
             AddToPlaylistDialog.create(this)
                 .show(fragment.childFragmentManager, "ADD_PLAYLIST")
             true
@@ -208,6 +215,12 @@ fun List<Song>.onSongsMenu(fragment: Fragment, menuItem: MenuItem): Boolean {
         }
 
         R.id.action_add_to_playlist -> {
+            // Session-only external files (transient grant) can't be persisted durably —
+            // block the whole multi-select action if any song is session-only.
+            if (any { it.isSessionOnlyExternal }) {
+                fragment.showToast(R.string.external_song_not_in_library)
+                return true
+            }
             AddToPlaylistDialog.create(this)
                 .show(fragment.childFragmentManager, "ADD_PLAYLIST")
             true
