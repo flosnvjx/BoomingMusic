@@ -3,17 +3,55 @@ name: Android CI
 permissions:
   contents: read
   pull-requests: read
-  actions: read
+  # `actions: write` is required to SAVE the Gradle cache. With read-only,
+  # GitHub silently drops every cache save (only a log warning), so each push
+  # would recompile from scratch.
+  actions: write
 
 on:
   push:
-    branches: [ "master", "stable" ]
+    branches: [ "master", "stable", "dev/", "v*" ]
     tags: [ "v*" ]
-  pull_request:
-    branches: [ "master", "stable" ]
+    paths-ignore:
+      - '**/*.md'
+      - 'doc/**'
+
+# If a new commit lands while the previous run is still going, cancel it:
+# only the result of the latest commit matters.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  check:
+  # Lint runs in its OWN parallel job so the wall-clock time is
+  # max(lint, build) instead of lint + build (lint is never cacheable, so it
+  # would otherwise serialize behind the build). It restores the Gradle cache
+  # READ-ONLY: only the build job writes it, so the two jobs never race on the
+  # same cache key (GitHub caches are immutable — the first save would win and
+  # the other job's outputs would be dropped).
+  lint:
+    runs-on: ubuntu-latest
+    # Skip for docs-only changes: nothing to compile or lint.
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          java-version: 21
+          distribution: 'zulu'
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: true
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Run Lint (debug variant)
+        # Lint only the debug variant — plain `lint` compiles every variant.
+        # Release lint still runs inside the build job (lintVitalRelease).
+        run: ./gradlew lintNormalDebug
+
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -21,35 +59,32 @@ jobs:
         with:
           java-version: 21
           distribution: 'zulu'
-          cache: gradle
+
+      # Caches dependencies, wrapper, the Gradle local build cache
+      # (Kotlin/Java compile outputs, i.e. Kotlin's "ccache") and the
+      # configuration cache across runs. Replaces setup-java's `cache: gradle`,
+      # which is coarse-grained and must not be combined with this action.
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          # Only the long-lived branches may write cache entries; PRs, tags and
+          # feature branches restore read-only (GitHub cache scoping rules).
+          cache-read-only: ${{ !(github.ref == 'refs/heads/master' || github.ref == 'refs/heads/stable') }}
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Run Lint
-        run: ./gradlew lint
+      - name: Build release APK (+ debug classes for the lint job's cache)
+        # Only the release APK is uploaded, but the debug Kotlin classes are
+        # compiled too: they are what the parallel lint job needs, and the
+        # build job's cache save is the only one persisted, so this keeps the
+        # lint job's debug compile incremental on the next run.
+        run: ./gradlew assembleNormalRelease compileNormalDebugKotlin
 
-  build:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v6
-    - uses: actions/setup-java@v5
-      with:
-        java-version: 21
-        distribution: 'zulu'
-        cache: gradle
-
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
-
-    - name: Build with Gradle
-      run: ./gradlew assemble
-
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v7
-      with:
-        name: release-apk
-        path: app/build/outputs/apk/*/release/BoomingMusic-*.apk
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-apk
+          path: app/build/outputs/apk/*/release/BoomingMusic-*.apk
 
   release:
     runs-on: ubuntu-latest
