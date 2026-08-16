@@ -294,14 +294,23 @@ class RealRepository(
     override suspend fun deleteMissingContent() {
         // Clean up playlists
         val playlists = playlistRepository.playlistsWithSongs()
+        // Stat each distinct device path once (the same song often appears in several
+        // playlists) instead of once per playlist row; external songs have no data path
+        // and are handled by pruneUnreadable instead.
+        val existingFiles = playlists.asSequence()
+            .flatMap { it.songs.asSequence() }
+            .filter { it.externalUri == null }
+            .map { it.data }
+            .distinct()
+            .filter { File(it).exists() }
+            .toHashSet()
         playlists.forEach { playlistWithSongs ->
-            // External songs (imported via the file picker) have no device data path and
-            // must never be purged here — their readability is handled elsewhere
-            // (pruneUnreadable removes unreadable imports).
             val missingSongs = playlistWithSongs.songs.filterNot { song ->
-                song.externalUri != null || File(song.data).exists()
+                song.externalUri != null || song.data in existingFiles
             }
-            playlistRepository.deleteSongsFromPlaylist(missingSongs)
+            if (missingSongs.isNotEmpty()) {
+                playlistRepository.deleteSongsFromPlaylist(missingSongs)
+            }
         }
     }
 
