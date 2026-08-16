@@ -206,10 +206,24 @@ abstract class AbsPlayerFragment(@LayoutRes layoutRes: Int) : Fragment(layoutRes
     @CallSuper
     protected open fun onMenuInflated(menu: Menu) {
         val song = playerViewModel.currentSong
-        // Session-only external files (opened via ACTION_VIEW, not imported) have no stored
-        // album — hide go-to-album instead of navigating to a dead/empty album page.
-        if (song.externalUri != null && song.albumId == -1L) {
-            menu.findItem(R.id.action_go_to_album)?.isVisible = false
+        val isExternal = song.externalUri != null
+        if (isExternal) {
+            // External songs are read-only: no tag editor / delete-from-device (these
+            // operate on the MediaStore row or the device file).
+            menu.findItem(R.id.action_tag_editor)?.isVisible = false
+            menu.findItem(R.id.action_delete_from_device)?.isVisible = false
+            menu.findItem(R.id.action_set_as_ringtone)?.isVisible = false
+            // Imported external songs (persisted in the library) can be removed from it;
+            // session-only files (opened via ACTION_VIEW) are not in the library.
+            menu.findItem(R.id.action_remove_from_library)
+                ?.isVisible = song.albumId != -1L
+            // Session-only external files have no stored album — hide go-to-album instead
+            // of navigating to a dead/empty album page.
+            if (song.albumId == -1L) {
+                menu.findItem(R.id.action_go_to_album)?.isVisible = false
+            }
+        } else {
+            menu.findItem(R.id.action_remove_from_library)?.isVisible = false
         }
     }
 
@@ -227,6 +241,11 @@ abstract class AbsPlayerFragment(@LayoutRes layoutRes: Int) : Fragment(layoutRes
 
             R.id.action_favorite -> {
                 onQuickActionEvent(NowPlayingAction.ToggleFavoriteState)
+                true
+            }
+
+            R.id.action_remove_from_library -> {
+                libraryViewModel.removeExternalSong(currentSong)
                 true
             }
 
