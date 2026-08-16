@@ -216,6 +216,9 @@ class LibraryViewModel(
                         // so DateAdded sorting/recency compares correctly across
                         // MediaStore and external songs.
                         dateAdded = System.currentTimeMillis() / 1000,
+                        // The file's last-modified time at import (seconds since epoch,
+                        // MediaStore's DATE_MODIFIED unit), resolved by the song probe
+                        // from the provider; -1 when the provider does not expose it.
                         dateModified = song.rawDateModified,
                         track = song.trackNumber
                     )

@@ -235,7 +235,13 @@ URI), imported songs survive restarts and behave like first-class library entrie
   rejecting already-imported URIs, inserts the entities, then reloads Songs/Albums
   once if anything was imported. The aggregated result is reported as one summary
   toast (single-file picks keep the per-reason messages). Non-audio or unreadable
-  picks are rejected with the same toast flow.
+  picks are rejected with the same toast flow. `date_added` records the import time
+  and `date_modified` the file's last-modified time at import (both seconds since
+  epoch, matching MediaStore's `DATE_ADDED`/`DATE_MODIFIED` units); the mtime is
+  resolved from the provider (`DocumentsContract.Document.COLUMN_LAST_MODIFIED`,
+  millis, or `MediaStore.MediaColumns.DATE_MODIFIED`, seconds — normalized to
+  seconds) by `RealSongRepository.getLastModifiedSeconds`, falling back to `-1`
+  when the provider does not expose it.
 - **Library integration:** merged into `Repository.allSongs()` / `searchSongs()`
   (Songs tab + search) and `allAlbums()` / `albumById()` (Albums tab + Go-to-album
   detail) — `data/local/repository/Repository.kt`. `allAlbums()` sorts the merged

@@ -48,6 +48,7 @@ import com.mardous.booming.extensions.utilities.mapIfValid
 import com.mardous.booming.extensions.utilities.takeOrDefault
 import com.mardous.booming.util.Preferences
 import okhttp3.internal.toLongOrDefault
+import java.io.File
 import java.util.Collections
 import java.util.LinkedHashMap
 
@@ -355,6 +356,47 @@ class RealSongRepository(
         }
     }
 
+    /**
+     * Best-effort last-modified time of an external file, in seconds since epoch (the
+     * [MediaStore.MediaColumns.DATE_MODIFIED] unit), or null when the provider does not
+     * expose it. Documents providers report it in milliseconds under
+     * [DocumentsContract.Document.COLUMN_LAST_MODIFIED]; other providers may expose it
+     * in seconds under [MediaStore.MediaColumns.DATE_MODIFIED] — the magnitude check
+     * normalizes both to seconds.
+     */
+    private fun getLastModifiedSeconds(uri: Uri): Long? {
+        return when (uri.scheme) {
+            ContentResolver.SCHEME_FILE -> uri.path
+                ?.takeIf { it.isNotEmpty() }
+                ?.let(::File)
+                ?.lastModified()
+                ?.takeIf { it > 0L }
+                ?.div(1000L)
+            ContentResolver.SCHEME_CONTENT -> arrayOf(
+                DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+                MediaStore.MediaColumns.DATE_MODIFIED
+            ).firstNotNullOfOrNull { column ->
+                try {
+                    MediaQueryDispatcher(uri)
+                        .withColumns(column)
+                        .dispatch()?.use { cursor ->
+                            if (cursor.moveToFirst() && !cursor.isNull(0)) {
+                                cursor.getLong(0).takeIf { it > 0L }
+                            } else null
+                        }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to retrieve last modified from Uri: $uri", e)
+                    null
+                }
+            }?.let { value ->
+                // Seconds values stay below this threshold well past year 2286; millis
+                // values (post-1973) are above it, so dividing identifies millis safely.
+                if (value > LAST_MODIFIED_MILLIS_THRESHOLD) value / 1000L else value
+            }
+            else -> null
+        }
+    }
+
     private fun findSongFromFileProviderUri(uri: Uri): Song {
         val (name, size) = getDisplayNameAndSize(uri)
             ?: return Song.emptySong
@@ -399,7 +441,8 @@ class RealSongRepository(
      * Builds a playable [Song] for a file that MediaStore does not index (e.g. an audio
      * file opened through a DocumentsProvider). The raw content URI is streamed directly
      * by the player; metadata is taken from [OpenableColumns.DISPLAY_NAME] and, when
-     * possible, from an in-place [MediaMetadataRetriever] probe. The song id is derived
+     * possible, from an in-place [MediaMetadataRetriever] probe, while the last-modified
+     * time comes from the provider ([getLastModifiedSeconds]). The song id is derived
      * from the canonicalized URI (see [asExternalIdentityUri]) so a session-only and an
      * imported song for the same file share one identity, and `albumId` stays `-1L`
      * (the session-only marker). Returns [Song.emptySong] when the URI cannot be
@@ -441,7 +484,7 @@ class RealSongRepository(
             size = contentInfo?.second ?: -1L,
             duration = metadata?.duration ?: -1L,
             dateAdded = -1L,
-            rawDateModified = -1L,
+            rawDateModified = getLastModifiedSeconds(uri) ?: -1L,
             albumId = -1L,
             albumName = metadata?.album.orEmpty(),
             artistId = -1L,
@@ -525,6 +568,10 @@ class RealSongRepository(
         private val TAG = RealSongRepository::class.java.simpleName
 
         private const val MAX_EXTERNAL_SONG_CACHE_SIZE = 64
+
+        // Any real timestamp in seconds is far below this (current epoch seconds are
+        // ~1.7e9; the threshold is year 2286); millisecond timestamps are above it.
+        private const val LAST_MODIFIED_MILLIS_THRESHOLD = 10_000_000_000L
 
         const val BASE_SELECTION = "${AudioColumns.TITLE} != '' AND ${AudioColumns.IS_MUSIC} = 1"
         const val SEARCH_SELECTION = "${AudioColumns.TITLE} LIKE ? OR ${AudioColumns.ARTIST} LIKE ? OR ${AudioColumns.ALBUM} LIKE ?"
