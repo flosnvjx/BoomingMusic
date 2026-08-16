@@ -11,7 +11,6 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.Player.REPEAT_MODE_OFF
-import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
@@ -210,30 +209,42 @@ class PlayerViewModel(
 
     private fun onGenerateQueue(
         player: Player,
-        timeline: Timeline = player.currentTimeline
-    ) = viewModelScope.launch {
+        regenAttempt: Int = 0
+    ): Job = viewModelScope.launch {
         queueMutex.withLock {
             // If the timeline is empty, reset the queue and exit early.
-            if (timeline.isEmpty) {
+            if (player.currentTimeline.isEmpty) {
                 _queueFlow.value = emptyList()
                 return@launch
             }
 
             // Capture the player's current state.
             val shuffle = player.shuffleModeEnabled
-            val playerIndex = player.currentMediaItemIndex
 
             val queueItems = player.getQueueItems(shuffle)
             val indicesInTimeline = queueItems.map { it.indexInTimeline }.toIntArray()
-            val queuePosition = QueuePosition(
-                current = indicesInTimeline.indexOf(playerIndex),
-                indicesInTimeline = indicesInTimeline
-            )
 
             // Retrieve existing songs for the given MediaItems and detect missing ones.
             val (songs, missingMediaItems) = withContext(IO) {
                 repository.songsByMediaItems(queueItems.map { it.mediaItem })
             }
+
+            // The timeline may have changed while the songs were being resolved (IO
+            // suspension). Never publish a stale queue — regenerate once against the
+            // latest state; further changes are picked up by the next timeline event.
+            if (player.currentTimeline.windowCount != indicesInTimeline.size) {
+                if (regenAttempt < 1) {
+                    onGenerateQueue(player, regenAttempt + 1)
+                }
+                return@launch
+            }
+
+            val queuePosition = QueuePosition(
+                // Re-read the current index after the IO suspension so the published
+                // position never lags the actual playback index.
+                current = indicesInTimeline.indexOf(player.currentMediaItemIndex),
+                indicesInTimeline = indicesInTimeline
+            )
 
             // Build a set of IDs representing missing (deleted) MediaItems.
             val missingIds = missingMediaItems.mapTo(HashSet()) { it.mediaId }
@@ -531,11 +542,7 @@ class PlayerViewModel(
             if (controller.currentTimeline.isEmpty) {
                 openQueue(listOf(song), startPlaying = false)
             } else {
-                var nextIndex = position.getIndexForPosition(position.next)
-                if (nextIndex == C.INDEX_UNSET) {
-                    nextIndex = controller.mediaItemCount
-                }
-                controller.addMediaItem(nextIndex, song.toMediaItem())
+                controller.addMediaItem(nextPlayIndex(controller), song.toMediaItem())
             }
         }
     }
@@ -545,13 +552,28 @@ class PlayerViewModel(
             if (controller.currentTimeline.isEmpty) {
                 openQueue(songs, startPlaying = false)
             } else {
-                var nextIndex = position.getIndexForPosition(position.next)
-                if (nextIndex == C.INDEX_UNSET) {
-                    nextIndex = controller.mediaItemCount
-                }
-                controller.addMediaItems(nextIndex, songs.toMediaItems())
+                controller.addMediaItems(nextPlayIndex(controller), songs.toMediaItems())
             }
         }
+    }
+
+    /**
+     * Timeline index at which "play next" items are inserted: right after the currently
+     * playing window in play order. Computed from the live controller state — the
+     * published [position] is only refreshed after onGenerateQueue's IO suspension, so
+     * reading it here can resolve a stale index and corrupt both the timeline and the
+     * regenerated display queue.
+     */
+    private fun nextPlayIndex(controller: MediaController): Int {
+        val timeline = controller.currentTimeline
+        val currentIndex = controller.currentMediaItemIndex
+        if (timeline.isEmpty || currentIndex == C.INDEX_UNSET) return timeline.windowCount
+        val next = timeline.getNextWindowIndex(
+            currentIndex,
+            Player.REPEAT_MODE_OFF,
+            controller.shuffleModeEnabled
+        )
+        return if (next == C.INDEX_UNSET) timeline.windowCount else next
     }
 
     fun enqueue(song: Song, toPosition: Int = -1) {
