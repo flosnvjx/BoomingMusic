@@ -165,6 +165,29 @@ fun Context.isUriReadable(uri: Uri): Boolean = try {
 }
 
 /**
+ * Canonical identity form for external content URIs. Tree-based providers deliver the same
+ * file under two different strings depending on how it was opened: the file picker returns
+ * `content://<authority>/document/<id>`, while ACTION_VIEW (e.g. Termux's file manager) may
+ * hand out `content://<authority>/tree/<root>/document/<id>`. Normalizing the tree form to
+ * the document form makes both paths share one identity, so a session-only open of an
+ * imported file resolves to the Room-imported song (and vice versa). The encoded document id
+ * is preserved verbatim (no re-encoding).
+ */
+fun String.asExternalIdentityUri(): String {
+    if (!startsWith(ContentResolver.SCHEME_CONTENT + "://")) return this
+    val docMarker = "/document/"
+    val docIndex = lastIndexOf(docMarker)
+    if (docIndex < 0) return this
+    val schemeEnd = indexOf("://")
+    val authorityEnd = indexOf('/', schemeEnd + 3)
+    if (authorityEnd < 0 || authorityEnd > docIndex) return this
+    val authority = substring(schemeEnd + 3, authorityEnd)
+    return "${ContentResolver.SCHEME_CONTENT}://$authority${substring(docIndex)}"
+}
+
+fun Uri.asExternalIdentityUri(): Uri = toString().asExternalIdentityUri().toUri()
+
+/**
  * A session-only external song: opened via ACTION_VIEW (transient grant), not imported
  * into the library. Its `albumId` stays `-1L` (the probe marker), whereas imported
  * external songs carry a negative-band album id. Such songs cannot be persisted

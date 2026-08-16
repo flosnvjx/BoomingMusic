@@ -185,6 +185,9 @@ class LibraryViewModel(
                     else -> {
                         externalSongRepository.add(
                             ExternalSongEntity(
+                                // Store the raw picked uri — the persistable grant covers
+                                // it, and it is what playback reads. (songByUri canonicalizes
+                                // tree-form queries to the document form when matching.)
                                 uri = uri.toString(),
                                 songId = externalSongId(uri.toString()),
                                 albumId = externalAlbumId(song.albumName, song.albumArtistName),

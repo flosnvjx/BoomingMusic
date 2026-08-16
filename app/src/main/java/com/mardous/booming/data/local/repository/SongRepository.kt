@@ -39,6 +39,7 @@ import com.mardous.booming.data.model.Song
 import com.mardous.booming.extensions.files.getCanonicalPathSafe
 import com.mardous.booming.extensions.hasQ
 import com.mardous.booming.extensions.hasR
+import com.mardous.booming.extensions.media.asExternalIdentityUri
 import com.mardous.booming.extensions.media.isExternalMediaId
 import com.mardous.booming.extensions.media.isExternalMediaUri
 import com.mardous.booming.extensions.media.isUriReadable
@@ -398,10 +399,18 @@ class RealSongRepository(
      * Builds a playable [Song] for a file that MediaStore does not index (e.g. an audio
      * file opened through a DocumentsProvider). The raw content URI is streamed directly
      * by the player; metadata is taken from [OpenableColumns.DISPLAY_NAME] and, when
-     * possible, from an in-place [MediaMetadataRetriever] probe. Returns [Song.emptySong]
-     * when the URI cannot be inspected at all.
+     * possible, from an in-place [MediaMetadataRetriever] probe. The song id is derived
+     * from the canonicalized URI (see [asExternalIdentityUri]) so a session-only and an
+     * imported song for the same file share one identity, and `albumId` stays `-1L`
+     * (the session-only marker). Returns [Song.emptySong] when the URI cannot be
+     * inspected at all.
      */
     private fun externalSongFromUri(uri: Uri): Song = runCatching {
+        // Canonical (tree form -> document form) identity for id derivation and Room
+        // matching only. All actual I/O below (readability, metadata, display name, and
+        // the Song's externalUri used for playback) MUST use the raw uri, because the
+        // granted permission (ACTION_VIEW / picker) covers the raw form.
+        val canonicalUri = uri.asExternalIdentityUri()
         // Session-only files have no persistent URI grant: if the URI cannot be read
         // right now (e.g. after an app restart the transient ACTION_VIEW grant is gone),
         // do not build a song — the item must resolve as missing and be dropped instead
@@ -424,7 +433,7 @@ class RealSongRepository(
             // Same synthetic derivation as the import path, so a session-only and an
             // imported song for the same file share an identity (and stay in the
             // negative band, disjoint from MediaStore ids).
-            id = externalSongId(uri.toString()),
+            id = externalSongId(canonicalUri.toString()),
             data = "",
             title = metadata?.title ?: fallbackTitle,
             trackNumber = metadata?.trackNumber ?: -1,

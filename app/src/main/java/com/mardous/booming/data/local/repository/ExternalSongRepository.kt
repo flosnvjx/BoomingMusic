@@ -25,6 +25,7 @@ import com.mardous.booming.data.local.room.PlaylistDao
 import com.mardous.booming.data.mapper.toSong
 import com.mardous.booming.data.model.Album
 import com.mardous.booming.data.model.Song
+import com.mardous.booming.extensions.media.asExternalIdentityUri
 import com.mardous.booming.extensions.media.isUriReadable
 import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
@@ -55,6 +56,12 @@ interface ExternalSongRepository {
 
     suspend fun albumSongs(albumId: Long): List<Song>
 
+    /**
+     * Returns the imported [Song] for an external file identified by its content URI, or
+     * null if the file was never imported. The query is canonicalized first (tree form ->
+     * document form via [asExternalIdentityUri]), so a session-only ACTION_VIEW open of an
+     * imported file matches its stored document-form row.
+     */
     suspend fun songByUri(uri: String): Song?
 
     suspend fun add(song: ExternalSongEntity)
@@ -102,7 +109,10 @@ class RealExternalSongRepository(
     }
 
     override suspend fun songByUri(uri: String): Song? = withContext(Dispatchers.IO) {
-        dao.byUri(uri)?.toSong()
+        // Canonicalize tree-form URIs (ACTION_VIEW on tree-based providers) to the
+        // document form the file picker returns, so a session-only open of an imported
+        // file matches its Room row.
+        dao.byUri(uri.asExternalIdentityUri())?.toSong()
     }
 
     override suspend fun add(song: ExternalSongEntity) = withContext(Dispatchers.IO) {

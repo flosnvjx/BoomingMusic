@@ -226,15 +226,14 @@ abstract class AbsPlayerFragment(@LayoutRes layoutRes: Int) : Fragment(layoutRes
             menu.findItem(R.id.action_tag_editor)?.isVisible = false
             menu.findItem(R.id.action_delete_from_device)?.isVisible = false
             menu.findItem(R.id.action_set_as_ringtone)?.isVisible = false
-            // Imported external songs (persisted in the library) can be removed from it;
-            // session-only files (opened via ACTION_VIEW) are not in the library.
-            menu.findItem(R.id.action_remove_from_library)
-                ?.isVisible = song.albumId != -1L
-            // Session-only external files have no stored album — hide go-to-album instead
-            // of navigating to a dead/empty album page.
-            if (song.albumId == -1L) {
-                menu.findItem(R.id.action_go_to_album)?.isVisible = false
-            }
+            // Imported external songs (persisted in the library) can be removed from it
+            // and have a real album page; session-only files (opened via ACTION_VIEW,
+            // not imported) have neither. Set BOTH visibilities explicitly — isVisible
+            // persists on the item, so a session-only song's hide would otherwise stick
+            // when transitioning to an imported one.
+            val isImported = song.albumId != -1L
+            menu.findItem(R.id.action_remove_from_library)?.isVisible = isImported
+            menu.findItem(R.id.action_go_to_album)?.isVisible = isImported
         } else {
             // MediaStore songs: restore everything the external branch may have hidden
             // (isVisible=false persists on the item until set true again).
