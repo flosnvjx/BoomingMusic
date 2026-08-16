@@ -46,6 +46,7 @@ import com.mardous.booming.extensions.dp
 import com.mardous.booming.extensions.launchAndRepeatWithViewLifecycle
 import com.mardous.booming.extensions.resources.createFastScroller
 import com.mardous.booming.extensions.resources.onVerticalScroll
+import com.mardous.booming.extensions.plurals
 import com.mardous.booming.extensions.setSupportActionBar
 import com.mardous.booming.extensions.showToast
 import com.mardous.booming.extensions.topLevelTransition
@@ -53,6 +54,7 @@ import com.mardous.booming.extensions.whichFragment
 import com.mardous.booming.ui.IScrollHelper
 import com.mardous.booming.ui.dialogs.playlists.ImportPlaylistDialog
 import com.mardous.booming.ui.screen.library.ImportExternalSongResult
+import com.mardous.booming.ui.screen.library.ImportExternalSongsResult
 import com.mardous.booming.ui.screen.other.ShuffleModeFragment
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -77,28 +79,42 @@ abstract class AbsRecyclerViewFragment<A : RecyclerView.Adapter<*>, LM : Recycle
     protected val sharedPreferences: SharedPreferences by inject()
 
     /**
-     * System file picker (ACTION_OPEN_DOCUMENT) for importing external audio files that
-     * MediaStore does not manage into the in-app library.
+     * System file picker (ACTION_OPEN_DOCUMENT, multi-select) for importing external
+     * audio files that MediaStore does not manage into the in-app library.
      */
-    private val importSongLauncher: ActivityResultLauncher<Array<String>> =
-        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-            if (uri != null) {
-                // The picker grant is persistable, so the imported song survives restarts.
-                runCatching {
-                    requireContext().contentResolver.takePersistableUriPermission(
-                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
-                }
-                libraryViewModel.importExternalSong(uri) { result ->
-                    val message = when (result) {
-                        ImportExternalSongResult.Success -> R.string.external_song_imported
-                        ImportExternalSongResult.AlreadyImported -> R.string.external_song_already_imported
-                        ImportExternalSongResult.AlreadyInMediaStore -> R.string.external_song_in_media_store
-                        ImportExternalSongResult.Unreadable -> R.string.external_song_unreadable
+    private val importSongsLauncher: ActivityResultLauncher<Array<String>> =
+        registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+            if (uris.isNotEmpty()) {
+                // The picker grants are persistable, so the imported songs survive restarts.
+                uris.forEach { uri ->
+                    runCatching {
+                        requireContext().contentResolver.takePersistableUriPermission(
+                            uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        )
                     }
-                    showToast(message)
+                }
+                libraryViewModel.importExternalSongs(uris) { result ->
+                    // Guard against detachment while the import coroutine runs:
+                    // building the message needs a live context (getString/plurals).
+                    if (isAdded) showToast(importSummaryMessage(result))
                 }
             }
+        }
+
+    /** Builds the toast message for an (aggregated) import result. */
+    private fun importSummaryMessage(result: ImportExternalSongsResult): String =
+        when {
+            result.total == 1 -> getString(
+                when (result.results.first()) {
+                    ImportExternalSongResult.Success -> R.string.external_song_imported
+                    ImportExternalSongResult.AlreadyImported -> R.string.external_song_already_imported
+                    ImportExternalSongResult.AlreadyInMediaStore -> R.string.external_song_in_media_store
+                    ImportExternalSongResult.Unreadable -> R.string.external_song_unreadable
+                }
+            )
+            result.added == 0 -> getString(R.string.external_songs_none_added)
+            result.added == result.total -> plurals(R.plurals.external_songs_added, result.total)
+            else -> getString(R.string.external_songs_partial_added, result.added, result.total)
         }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -264,7 +280,7 @@ abstract class AbsRecyclerViewFragment<A : RecyclerView.Adapter<*>, LM : Recycle
         when (item.itemId) {
             R.id.action_settings -> findNavController().navigate(R.id.nav_settings)
             R.id.action_scan -> mainActivity.scanAllPaths()
-            R.id.action_add_external_song -> importSongLauncher.launch(arrayOf("audio/*"))
+            R.id.action_add_external_song -> importSongsLauncher.launch(arrayOf("audio/*"))
             R.id.action_equalizer -> findNavController().navigate(R.id.nav_equalizer)
             R.id.action_import_playlist -> ImportPlaylistDialog().show(childFragmentManager, "IMPORT_PLAYLIST")
         }

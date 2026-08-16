@@ -199,11 +199,12 @@ title/artist/duration.
 ## 10. Imported external songs (system file picker)
 
 Besides the transient ACTION_VIEW path, users can **permanently import** external audio
-files into the in-app library via the system file picker ("Add from file…" in the
+files into the in-app library via the system file picker ("Add from files…" in the
 library menu, `res/menu/menu_library.xml`; hidden in the Playlists tab, which has its
-own playlist-scoped add/import entries). Because the picker grant is **persistable**
-(`takePersistableUriPermission`), imported songs survive restarts and behave like
-first-class library entries:
+own playlist-scoped add/import entries). The picker runs `ACTION_OPEN_DOCUMENT` with
+multi-select enabled (`OpenMultipleDocuments` in `AbsRecyclerViewFragment`); because
+the picker grants are **persistable** (`takePersistableUriPermission`, one per picked
+URI), imported songs survive restarts and behave like first-class library entries:
 
 - **Storage:** `ExternalSongEntity` (Room `external_songs` table, PK = uri, DB v9) —
   `data/local/room/ExternalSongEntity.kt`, `ExternalSongDao`, migrations
@@ -228,10 +229,13 @@ first-class library entries:
   derives its `Song.id` from the canonical URI — so a session-only open of an imported
   file resolves to the imported song (real album identity, Go-to-album works), and
   session-only/imported versions of the same file share one id.
-- **Import flow** (`ui/screen/library/LibraryViewModel.kt` `importExternalSong`):
-  dedup via `songsByUri` (rejects files MediaStore already maps or that match a
-  MediaStore row by display-name+size), rejects already-imported URIs, inserts the
-  entity, reloads Songs/Albums. Non-audio or unreadable picks are rejected with a toast.
+- **Import flow** (`ui/screen/library/LibraryViewModel.kt` `importExternalSongs`):
+  imports the picked URIs sequentially, deduping each via `songsByUri` (rejects files
+  MediaStore already maps or that match a MediaStore row by display-name+size) and
+  rejecting already-imported URIs, inserts the entities, then reloads Songs/Albums
+  once if anything was imported. The aggregated result is reported as one summary
+  toast (single-file picks keep the per-reason messages). Non-audio or unreadable
+  picks are rejected with the same toast flow.
 - **Library integration:** merged into `Repository.allSongs()` / `searchSongs()`
   (Songs tab + search) and `allAlbums()` / `albumById()` (Albums tab + Go-to-album
   detail) — `data/local/repository/Repository.kt`. `allAlbums()` sorts the merged

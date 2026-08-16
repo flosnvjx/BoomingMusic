@@ -271,11 +271,17 @@
     <string name="new_start_directory">New start directory: %s</string>
     <string name="action_scan">Scan</string>
     <string name="scan_media">Scan media</string>
-    <string name="action_add_external_song">Add from file…</string>
+    <string name="action_add_external_song">Add from files…</string>
     <string name="external_song_imported">Added to library</string>
     <string name="external_song_already_imported">Already in your library</string>
     <string name="external_song_in_media_store">This file is already managed by the media library</string>
     <string name="external_song_unreadable">Couldn\'t read the selected file</string>
+    <string name="external_songs_none_added">No files could be added</string>
+    <string name="external_songs_partial_added">%1$d of %2$d files added to library</string>
+    <plurals name="external_songs_added">
+        <item quantity="one">%1$d file added to library</item>
+        <item quantity="other">%1$d files added to library</item>
+    </plurals>
     <string name="external_song_not_in_library">This file isn\'t part of your library — import it first to add it to playlists or favorites.</string>
     <string name="action_remove_from_library">Remove from library</string>
     <string name="external_song_read_only">This action isn\'t available for files outside your library</string>

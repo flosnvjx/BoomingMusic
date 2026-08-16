@@ -169,54 +169,61 @@ class LibraryViewModel(
     }
 
     /**
-     * Imports an audio file picked via the system file picker into the in-app library.
-     * [uri] must already carry a persistable read grant (takePersistableUriPermission).
+     * Imports audio files picked via the system file picker into the in-app library.
+     * The [uris] must already carry persistable read grants (takePersistableUriPermission).
+     * Reloads Songs/Albums once if at least one file was imported, then reports the
+     * per-file results in pick order.
      */
-    fun importExternalSong(uri: Uri, onResult: (ImportExternalSongResult) -> Unit) =
+    fun importExternalSongs(uris: List<Uri>, onResult: (ImportExternalSongsResult) -> Unit) =
         viewModelScope.launch(IO) {
-            val result = runCatching {
-                val song = repository.songsByUri(uri).firstOrNull()
-                when {
-                    song == null || song == Song.emptySong -> ImportExternalSongResult.Unreadable
-                    // songsByUri resolved it to a MediaStore row → already managed.
-                    song.externalUri == null -> ImportExternalSongResult.AlreadyInMediaStore
-                    externalSongRepository.songByUri(uri.toString()) != null ->
-                        ImportExternalSongResult.AlreadyImported
-                    else -> {
-                        externalSongRepository.add(
-                            ExternalSongEntity(
-                                // Store the raw picked uri — the persistable grant covers
-                                // it, and it is what playback reads. (songByUri canonicalizes
-                                // tree-form queries to the document form when matching.)
-                                uri = uri.toString(),
-                                songId = externalSongId(uri.toString()),
-                                albumId = externalAlbumId(song.albumName, song.albumArtistName),
-                                title = song.title,
-                                artist = song.artistName,
-                                album = song.albumName,
-                                albumArtist = song.albumArtistName,
-                                genre = song.genreName,
-                                duration = song.duration,
-                                size = song.size,
-                                // Seconds since epoch, matching MediaStore's DATE_ADDED unit,
-                                // so DateAdded sorting/recency compares correctly across
-                                // MediaStore and external songs.
-                                dateAdded = System.currentTimeMillis() / 1000,
-                                dateModified = song.rawDateModified,
-                                track = song.trackNumber
-                            )
-                        )
-                        ImportExternalSongResult.Success
-                    }
-                }
-            }.getOrDefault(ImportExternalSongResult.Unreadable)
-
-            if (result == ImportExternalSongResult.Success) {
+            if (uris.isEmpty()) {
+                onResult(ImportExternalSongsResult(emptyList()))
+                return@launch
+            }
+            val results = uris.map { importExternalSong(it) }
+            if (results.any { it == ImportExternalSongResult.Success }) {
                 forceReload(ReloadType.Songs)
                 forceReload(ReloadType.Albums)
             }
-            onResult(result)
+            onResult(ImportExternalSongsResult(results))
         }
+
+    private suspend fun importExternalSong(uri: Uri): ImportExternalSongResult = runCatching {
+        val song = repository.songsByUri(uri).firstOrNull()
+        when {
+            song == null || song == Song.emptySong -> ImportExternalSongResult.Unreadable
+            // songsByUri resolved it to a MediaStore row → already managed.
+            song.externalUri == null -> ImportExternalSongResult.AlreadyInMediaStore
+            externalSongRepository.songByUri(uri.toString()) != null ->
+                ImportExternalSongResult.AlreadyImported
+            else -> {
+                externalSongRepository.add(
+                    ExternalSongEntity(
+                        // Store the raw picked uri — the persistable grant covers
+                        // it, and it is what playback reads. (songByUri canonicalizes
+                        // tree-form queries to the document form when matching.)
+                        uri = uri.toString(),
+                        songId = externalSongId(uri.toString()),
+                        albumId = externalAlbumId(song.albumName, song.albumArtistName),
+                        title = song.title,
+                        artist = song.artistName,
+                        album = song.albumName,
+                        albumArtist = song.albumArtistName,
+                        genre = song.genreName,
+                        duration = song.duration,
+                        size = song.size,
+                        // Seconds since epoch, matching MediaStore's DATE_ADDED unit,
+                        // so DateAdded sorting/recency compares correctly across
+                        // MediaStore and external songs.
+                        dateAdded = System.currentTimeMillis() / 1000,
+                        dateModified = song.rawDateModified,
+                        track = song.trackNumber
+                    )
+                )
+                ImportExternalSongResult.Success
+            }
+        }
+    }.getOrDefault(ImportExternalSongResult.Unreadable)
 
     /** Removes an imported external song from the in-app library (and its playlist snapshots). */
     fun removeExternalSong(song: Song): Job = viewModelScope.launch(IO) {
@@ -685,4 +692,10 @@ sealed class ImportExternalSongResult {
     data object AlreadyImported : ImportExternalSongResult()
     data object AlreadyInMediaStore : ImportExternalSongResult()
     data object Unreadable : ImportExternalSongResult()
+}
+
+/** Aggregate outcome of a multi-file import, one result per picked URI (in pick order). */
+data class ImportExternalSongsResult(val results: List<ImportExternalSongResult>) {
+    val added: Int get() = results.count { it == ImportExternalSongResult.Success }
+    val total: Int get() = results.size
 }
