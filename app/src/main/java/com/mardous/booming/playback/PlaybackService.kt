@@ -723,22 +723,26 @@ class PlaybackService :
             val shouldBumpPlayCount = songPlayCountHelper.shouldBumpPlayCount()
             songPlayCountHelper.notifySongChanged(newSong, isPlaying)
 
-            // External files (opened via ACTION_VIEW from a provider MediaStore does not
-            // index) have no MediaStore identity: skip features that depend on it and
+            // Session-only external files (opened via ACTION_VIEW, transient grant)
             // reset ReplayGain so the previous track's gain does not leak onto them.
-            val isExternalSong = newSong.externalUri != null
-            if (isExternalSong) {
+            // Imported external songs (persistable grant) get ReplayGain like any
+            // other file: their content URIs stay readable, so tags can be extracted.
+            if (newSong.isSessionOnlyExternal) {
                 replayGainProcessor.currentGain = null
             } else if (newSong != Song.emptySong) {
                 replayGainProcessor.currentGain = ReplayGainTagExtractor.getReplayGain(newSong)
-                if (preferences.getBoolean(ENABLE_HISTORY, true)) {
-                    repository.upsertSongInHistory(newSong)
-                }
-                if (NetworkFeature.Lastfm.NowPlaying.isAvailable(this@PlaybackService)) {
-                    launch { repository.updateNowPlaying(ScrobblingService.Lastfm, newSong) }
-                }
-                if (NetworkFeature.ListenBrainz.NowPlaying.isAvailable(this@PlaybackService)) {
-                    launch { repository.updateNowPlaying(ScrobblingService.ListenBrainz, newSong) }
+                // History and now-playing stay MediaStore-only: external songs have no
+                // MediaStore identity for Last.fm/ListenBrainz to resolve.
+                if (newSong.externalUri == null) {
+                    if (preferences.getBoolean(ENABLE_HISTORY, true)) {
+                        repository.upsertSongInHistory(newSong)
+                    }
+                    if (NetworkFeature.Lastfm.NowPlaying.isAvailable(this@PlaybackService)) {
+                        launch { repository.updateNowPlaying(ScrobblingService.Lastfm, newSong) }
+                    }
+                    if (NetworkFeature.ListenBrainz.NowPlaying.isAvailable(this@PlaybackService)) {
+                        launch { repository.updateNowPlaying(ScrobblingService.ListenBrainz, newSong) }
+                    }
                 }
             }
             // Play statistics (play count, skip count, last played) are recorded for

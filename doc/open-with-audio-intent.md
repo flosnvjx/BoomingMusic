@@ -142,12 +142,16 @@ therefore keys on the URI-as-mediaId:
 ## 6. Playback side effects & guards
 
 `PlaybackService.onMediaItemTransition` (`playback/PlaybackService.kt:715-761`) skips
-MediaStore-dependent features for external songs (`externalUri != null`):
+MediaStore-dependent features for external songs:
 
-- No history upsert, no play-count/skip-count bump, no Last.fm/ListenBrainz
-  now-playing or scrobbling (`:728-742`).
-- ReplayGain is reset to `null` so the previous track's gain does not leak onto the
-  external file (`:730`); the previous-song guard also excludes external songs (`:743`).
+- **Session-only external songs** (`isSessionOnlyExternal`, transient ACTION_VIEW
+  grant): no history upsert, no now-playing/scrobbling, and ReplayGain is reset to
+  `null` so the previous track's gain does not leak onto them (`:729-731`).
+- **Imported external songs** (file picker, persistable grant): ReplayGain is applied
+  from their tags like any other file (`:733`); history and now-playing stay
+  MediaStore-only, and scrobbling stays MediaStore-only (`:753-758`).
+- The previous-song guard (play-count/skip-count) excludes only session-only external
+  songs (`:749`).
 
 The notification and widgets need no special handling: they render from
 `MediaItem.mediaMetadata`, which survives bundling and carries the probed
@@ -176,7 +180,7 @@ title/artist/duration.
 | DocumentsProvider URI mappable via `getMediaUri` (API 29+) | Treated as its MediaStore row → plays, persisted |
 | DocumentsProvider URI **not** in MediaStore (cloud/OTG, or any provider on API 26–28) | External song → raw URI streamed, queue replaced, now-playing + notification show probed title; session-only, no history/play-count/artwork/ReplayGain |
 | External file, app restarted | Not persisted and unreadable after restart → restore drops it; the queue resumes with the remaining persisted songs at the correct position |
-| **Imported** external song (file picker) | Durable: persists in Room + queue, appears in Songs/Albums/search/playlists/Favorites, survives restarts; write ops disabled; removable; auto-pruned if the provider is unplugged |
+| **Imported** external song (file picker) | Durable: persists in Room + queue, appears in Songs/Albums/search/playlists/Favorites, survives restarts; ReplayGain works; write ops disabled; removable; auto-pruned if the provider is unplugged |
 | `file://` not indexed by MediaStore | Same external-song path → plays |
 | URI completely unreadable (provider query + probe both fail) | `emptySong` → silent no-op: queue cleared, nothing plays, no toast, nothing saved |
 | No `READ_MEDIA_AUDIO` on cold start | Redirects to `PermissionsActivity`, intent dropped |
