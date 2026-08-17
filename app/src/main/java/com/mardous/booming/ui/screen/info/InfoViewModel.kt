@@ -22,7 +22,6 @@ import com.mardous.booming.extensions.files.getHumanReadableSize
 import com.mardous.booming.extensions.files.getPrettyAbsolutePath
 import com.mardous.booming.extensions.files.toAudioFile
 import com.mardous.booming.extensions.media.asNumberOfTimes
-import com.mardous.booming.extensions.media.asReadableDuration
 import com.mardous.booming.extensions.media.isImportedExternal
 import com.mardous.booming.extensions.media.replayGainStr
 import com.mardous.booming.extensions.media.songDurationStr
@@ -188,7 +187,6 @@ class InfoViewModel(
                     album = album,
                     albumArtist = albumArtist,
                     genre = genre,
-                    duration = metadataReader.duration(),
                     // Match the session probe's parsing of composed track fields (e.g. "3/12").
                     track = trackNumberRaw?.substringBefore('/')?.trim()?.toIntOrNull()
                 )
@@ -222,9 +220,7 @@ class InfoViewModel(
                         fileSize = updated.size.takeIf { it > 0 }?.asReadableFileSize()
                             ?: info.fileSize,
                         dateModified = updated.dateModified.takeIf { it > 0 }
-                            ?.let { Date(it * 1000).format(context) } ?: info.dateModified,
-                        trackLength = updated.duration.takeIf { it > 0 }?.asReadableDuration()
-                            ?: info.trackLength
+                            ?.let { Date(it * 1000).format(context) } ?: info.dateModified
                     )
                 )
             }

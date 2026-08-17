@@ -28,12 +28,6 @@ class MetadataReader(uri: Uri, readPictures: Boolean = false) : KoinComponent {
     val hasMetadata get() = metadata != null
     val hasPictures get() = pictures?.isNotEmpty() == true
 
-    /** Playback duration in milliseconds, or null when the audio properties could not be read. */
-    fun duration(): Long? {
-        val length = audioProperties?.length ?: return null
-        return if (length > 0) length.toLong() else null
-    }
-
     init {
         try {
             get<ContentResolver>().openFileDescriptor(uri, "r")?.use {
