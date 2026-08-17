@@ -30,7 +30,7 @@ import androidx.room.PrimaryKey
  * MediaStore ids and the -1/-2 sentinels.
  */
 @Entity(tableName = "external_songs")
-class ExternalSongEntity(
+data class ExternalSongEntity(
     @PrimaryKey
     @ColumnInfo(name = "uri")
     val uri: String,

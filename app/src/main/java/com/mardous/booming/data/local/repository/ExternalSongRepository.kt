@@ -30,7 +30,9 @@ import com.mardous.booming.extensions.media.asExternalIdentityUri
 import com.mardous.booming.extensions.media.isUriReadable
 import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 /**
  * Stable synthetic IDs for imported external songs, in a reserved negative band
@@ -46,6 +48,21 @@ fun externalSongId(uri: String): Long = -(EXTERNAL_ID_BASE + (uri.hashCode() and
 
 fun externalAlbumId(album: String, albumArtist: String?): Long =
     -(EXTERNAL_ID_BASE + ("$album\u0000${albumArtist.orEmpty()}".hashCode() and 0x7FFFFFFF))
+
+/**
+ * Tag fields freshly read from an imported external song's file (the same taglib read
+ * the Song Details sheet performs for display). Null fields mean "not read or not
+ * present in the file" and leave the stored value untouched during a metadata refresh.
+ */
+data class ExternalSongTags(
+    val title: String? = null,
+    val artist: String? = null,
+    val album: String? = null,
+    val albumArtist: String? = null,
+    val genre: String? = null,
+    val duration: Long? = null,
+    val track: Int? = null
+)
 
 interface ExternalSongRepository {
 
@@ -68,6 +85,21 @@ interface ExternalSongRepository {
     suspend fun add(song: ExternalSongEntity)
 
     suspend fun remove(uri: String)
+
+    /**
+     * Reconciles the stored row for an imported external song against freshly-read file
+     * state: [tags] come from the taglib read the caller already performed, while size and
+     * last-modified are queried from the provider here. The round-trip is bounded by a
+     * timeout so a slow or hung DocumentsProvider (e.g. network-backed) can never produce a
+     * stale Room write — the blocking query itself cannot be aborted mid-flight, but the
+     * write window is. The Room lookup canonicalizes the URI (tree form -> document form);
+     * provider queries use the raw [uri], which is what the persistable grant covers. Blank
+     * tag fields leave the stored value untouched, as do unknown size/mtime. The row is
+     * written only when something actually changed, and the album id is recomputed whenever
+     * the album/album-artist pair changed (it is derived from those names). Returns the
+     * updated row, or null when the song is no longer imported or nothing changed.
+     */
+    suspend fun refreshMetadata(uri: String, tags: ExternalSongTags): ExternalSongEntity?
 
     /**
      * Removes stored songs whose URI can no longer be read (e.g. an unplugged OTG
@@ -127,6 +159,55 @@ class RealExternalSongRepository(
         playCountDao.deleteByExternalUri(uri)
     }
 
+    override suspend fun refreshMetadata(uri: String, tags: ExternalSongTags): ExternalSongEntity? =
+        withContext(Dispatchers.IO) {
+            withTimeout(METADATA_REFRESH_TIMEOUT_MS) {
+                // Canonicalize tree-form URIs (ACTION_VIEW on tree-based providers) to
+                // the document form the picker stored, matching songByUri(). Provider
+                // queries below use the raw uri — the persistable grant covers it.
+                val entity = dao.byUri(uri.asExternalIdentityUri()) ?: return@withTimeout null
+                ensureActive()
+                val size = ExternalFileMetadata.size(context.contentResolver, uri.toUri())
+                val lastModified =
+                    ExternalFileMetadata.lastModifiedSeconds(context.contentResolver, uri.toUri())
+                // The blocking provider calls above cannot be aborted mid-flight, but a
+                // cancellation (sheet closed) or timeout must never produce a stale write.
+                ensureActive()
+                val newAlbum = tags.album?.takeIf { it.isNotBlank() } ?: entity.album
+                val newAlbumArtist = tags.albumArtist?.takeIf { it.isNotBlank() } ?: entity.albumArtist
+                val updated = entity.copy(
+                    title = tags.title?.takeIf { it.isNotBlank() } ?: entity.title,
+                    artist = tags.artist?.takeIf { it.isNotBlank() } ?: entity.artist,
+                    album = newAlbum,
+                    albumArtist = newAlbumArtist,
+                    genre = tags.genre?.takeIf { it.isNotBlank() } ?: entity.genre,
+                    duration = tags.duration?.takeIf { it > 0 } ?: entity.duration,
+                    track = tags.track ?: entity.track,
+                    // albumId is derived from the album/album-artist names — recompute it
+                    // whenever that pair changed, or the row would land under a stale id.
+                    albumId = if (newAlbum != entity.album || newAlbumArtist != entity.albumArtist) {
+                        externalAlbumId(newAlbum, newAlbumArtist)
+                    } else {
+                        entity.albumId
+                    },
+                    size = size?.takeIf { it > 0 } ?: entity.size,
+                    dateModified = lastModified ?: entity.dateModified
+                )
+                if (updated == entity) {
+                    null
+                } else {
+                    // The row may have been removed while we were querying the provider;
+                    // re-check so the upsert does not resurrect a deleted song.
+                    if (dao.byUri(uri.asExternalIdentityUri()) == null) {
+                        null
+                    } else {
+                        dao.insert(updated)
+                        updated
+                    }
+                }
+            }
+        }
+
     override suspend fun pruneUnreadable(): List<String> = withContext(Dispatchers.IO) {
         // One cheap IPC: the app's persisted URI grants. A content URI without a grant can
         // never be read, so it is pruned without probing the (possibly hung/dead) provider;
@@ -146,5 +227,12 @@ class RealExternalSongRepository(
             playCountDao.deleteByExternalUris(removed)
         }
         removed
+    }
+
+    private companion object {
+        // Bounds the write window; a hung DocumentsProvider (e.g. network-backed) can
+        // never produce a stale Room write — the blocking query itself cannot be aborted
+        // mid-flight, but the coroutine is cancelled at the deadline.
+        const val METADATA_REFRESH_TIMEOUT_MS = 5_000L
     }
 }

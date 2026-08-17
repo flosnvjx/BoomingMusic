@@ -48,7 +48,6 @@ import com.mardous.booming.extensions.utilities.mapIfValid
 import com.mardous.booming.extensions.utilities.takeOrDefault
 import com.mardous.booming.util.Preferences
 import okhttp3.internal.toLongOrDefault
-import java.io.File
 import java.util.Collections
 import java.util.LinkedHashMap
 
@@ -371,38 +370,8 @@ class RealSongRepository(
      * in seconds under [MediaStore.MediaColumns.DATE_MODIFIED] — the magnitude check
      * normalizes both to seconds.
      */
-    private fun getLastModifiedSeconds(uri: Uri): Long? {
-        return when (uri.scheme) {
-            ContentResolver.SCHEME_FILE -> uri.path
-                ?.takeIf { it.isNotEmpty() }
-                ?.let(::File)
-                ?.lastModified()
-                ?.takeIf { it > 0L }
-                ?.div(1000L)
-            ContentResolver.SCHEME_CONTENT -> arrayOf(
-                DocumentsContract.Document.COLUMN_LAST_MODIFIED,
-                MediaStore.MediaColumns.DATE_MODIFIED
-            ).firstNotNullOfOrNull { column ->
-                try {
-                    MediaQueryDispatcher(uri)
-                        .withColumns(column)
-                        .dispatch()?.use { cursor ->
-                            if (cursor.moveToFirst() && !cursor.isNull(0)) {
-                                cursor.getLong(0).takeIf { it > 0L }
-                            } else null
-                        }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to retrieve last modified from Uri: $uri", e)
-                    null
-                }
-            }?.let { value ->
-                // Seconds values stay below this threshold well past year 2286; millis
-                // values (post-1973) are above it, so dividing identifies millis safely.
-                if (value > LAST_MODIFIED_MILLIS_THRESHOLD) value / 1000L else value
-            }
-            else -> null
-        }
-    }
+    private fun getLastModifiedSeconds(uri: Uri): Long? =
+        ExternalFileMetadata.lastModifiedSeconds(context.contentResolver, uri)
 
     private fun findSongFromFileProviderUri(uri: Uri): Song {
         val (name, size) = getDisplayNameAndSize(uri)
@@ -575,10 +544,6 @@ class RealSongRepository(
         private val TAG = RealSongRepository::class.java.simpleName
 
         private const val MAX_EXTERNAL_SONG_CACHE_SIZE = 64
-
-        // Any real timestamp in seconds is far below this (current epoch seconds are
-        // ~1.7e9; the threshold is year 2286); millisecond timestamps are above it.
-        private const val LAST_MODIFIED_MILLIS_THRESHOLD = 10_000_000_000L
 
         const val BASE_SELECTION = "${AudioColumns.TITLE} != '' AND ${AudioColumns.IS_MUSIC} = 1"
         const val SEARCH_SELECTION = "${AudioColumns.TITLE} LIKE ? OR ${AudioColumns.ARTIST} LIKE ? OR ${AudioColumns.ALBUM} LIKE ?"

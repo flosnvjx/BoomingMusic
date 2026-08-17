@@ -195,3 +195,11 @@ fun Uri.asExternalIdentityUri(): Uri = toString().asExternalIdentityUri().toUri(
  */
 val Song.isSessionOnlyExternal: Boolean
     get() = externalUri != null && albumId == -1L
+
+/**
+ * An imported external song: it lives in the in-app library (`external_songs` table)
+ * with a synthetic negative-band album id, as opposed to [isSessionOnlyExternal] songs
+ * opened via ACTION_VIEW with a transient grant and no Room row.
+ */
+val Song.isImportedExternal: Boolean
+    get() = externalUri != null && albumId != -1L

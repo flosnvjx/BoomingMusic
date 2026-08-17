@@ -8,6 +8,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.liveData
 import androidx.lifecycle.viewModelScope
 import com.mardous.booming.data.local.MetadataReader
+import com.mardous.booming.data.local.repository.ExternalSongRepository
+import com.mardous.booming.data.local.repository.ExternalSongTags
 import com.mardous.booming.data.local.repository.Repository
 import com.mardous.booming.data.mapper.toPlayCount
 import com.mardous.booming.data.model.Album
@@ -19,18 +21,27 @@ import com.mardous.booming.extensions.files.getHumanReadableSize
 import com.mardous.booming.extensions.files.getPrettyAbsolutePath
 import com.mardous.booming.extensions.files.toAudioFile
 import com.mardous.booming.extensions.media.asNumberOfTimes
+import com.mardous.booming.extensions.media.asReadableDuration
+import com.mardous.booming.extensions.media.isImportedExternal
 import com.mardous.booming.extensions.media.replayGainStr
 import com.mardous.booming.extensions.media.songDurationStr
 import com.mardous.booming.extensions.utilities.dateStr
 import com.mardous.booming.extensions.utilities.format
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import org.jaudiotagger.audio.AudioHeader
 import java.io.File
+import java.util.Date
 
-class InfoViewModel(private val repository: Repository) : ViewModel() {
+class InfoViewModel(
+    private val repository: Repository,
+    private val externalSongRepository: ExternalSongRepository
+) : ViewModel() {
 
     private val _songInfoUiState = MutableStateFlow(
         SongInfoUiState(
@@ -88,13 +99,15 @@ class InfoViewModel(private val repository: Repository) : ViewModel() {
             val metadataReader = MetadataReader(song.uri)
 
             // External songs have no local path (data == ""), so a File-based size
-            // would always read 0; resolve their size from the provider instead.
+            // would always read 0. Imported ones show the Room-recorded size right
+            // away (a background reconcile refreshes it from the provider); session-
+            // only songs have no Room row, so the provider is the only source.
             val file = File(song.data)
             val filePath = file.getPrettyAbsolutePath()
-            val fileSize = if (song.externalUri != null) {
-                externalSongFileSize(context, song.uri, song.size)
-            } else {
-                file.getHumanReadableSize()
+            val fileSize = when {
+                song.isImportedExternal -> song.size.takeIf { it > 0 }?.asReadableFileSize()
+                song.externalUri != null -> externalSongFileSize(context, song.uri, song.size)
+                else -> file.getHumanReadableSize()
             }
 
             if (!metadataReader.hasMetadata) {
@@ -109,7 +122,7 @@ class InfoViewModel(private val repository: Repository) : ViewModel() {
                     title = song.title,
                     albumYear = year,
                     replayGain = replayGain
-                )
+                ) to null
             } else {
                 val audioHeaderInfo = getAudioHeader(file.toAudioFile()?.audioHeader, metadataReader)
 
@@ -164,15 +177,53 @@ class InfoViewModel(private val repository: Repository) : ViewModel() {
                     genre = genre,
                     replayGain = replayGain,
                     comment = comment
+                ) to ExternalSongTags(
+                    title = title,
+                    artist = artist,
+                    album = album,
+                    albumArtist = albumArtist,
+                    genre = genre,
+                    duration = metadataReader.duration(),
+                    // Match the session probe's parsing of composed track fields (e.g. "3/12").
+                    track = trackNumberRaw?.substringBefore('/')?.trim()?.toIntOrNull()
                 )
             }
-        }
+        }.onFailure { if (it is CancellationException) throw it }
 
         _songInfoUiState.value = uiState.copy(
             isLoading = false,
             isSuccess = songInfo.isSuccess,
-            info = songInfo.getOrDefault(SongInfo.Empty)
+            info = songInfo.getOrDefault(SongInfo.Empty to null).first
         )
+
+        // Reconcile imported external songs against freshly-read file state (see
+        // ExternalSongRepository.refreshMetadata): the taglib read above is already
+        // done for display, so persisting it plus a bounded provider size/mtime query
+        // keeps the Room row in sync. Sheet-scoped — closing the sheet cancels this
+        // coroutine (no stale Room write); the timeout keeps a hung (e.g. network-
+        // backed) DocumentsProvider from stalling us.
+        val externalUri = song.externalUri
+        if (song.isImportedExternal && externalUri != null) {
+            val tags = songInfo.getOrNull()?.second
+            val updated = try {
+                externalSongRepository.refreshMetadata(externalUri, tags ?: ExternalSongTags())
+            } catch (e: TimeoutCancellationException) {
+                null
+            }
+            val info = songInfo.getOrNull()?.first
+            if (updated != null && info != null) {
+                _songInfoUiState.value = _songInfoUiState.value.copy(
+                    info = info.copy(
+                        fileSize = updated.size.takeIf { it > 0 }?.asReadableFileSize()
+                            ?: info.fileSize,
+                        dateModified = updated.dateModified.takeIf { it > 0 }
+                            ?.let { Date(it * 1000).format(context) } ?: info.dateModified,
+                        trackLength = updated.duration.takeIf { it > 0 }?.asReadableDuration()
+                            ?: info.trackLength
+                    )
+                )
+            }
+        }
     }
 
     /**
@@ -228,11 +279,13 @@ class InfoViewModel(private val repository: Repository) : ViewModel() {
      */
     private fun externalSongFileSize(context: Context, uri: Uri, recordedSize: Long): String? {
         val liveSize = runCatching {
-            context.contentResolver
-                .query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)
-                ?.use { cursor ->
-                    if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else null
-                }
+            withTimeout(EXTERNAL_SIZE_QUERY_TIMEOUT_MS) {
+                context.contentResolver
+                    .query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)
+                    ?.use { cursor ->
+                        if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else null
+                    }
+            }
         }.getOrNull()
         val size = liveSize?.takeIf { it > 0 } ?: recordedSize.takeIf { it > 0 } ?: return null
         return size.asReadableFileSize()
@@ -247,5 +300,11 @@ class InfoViewModel(private val repository: Repository) : ViewModel() {
             variableBitrate = header?.isVariableBitRate == true,
             lossless = header?.isLossless == true
         )
+    }
+
+    private companion object {
+        // Bounds the provider size query for session-only songs (no Room row to fall
+        // back on beyond the recorded value); a hung provider must not stall the sheet.
+        const val EXTERNAL_SIZE_QUERY_TIMEOUT_MS = 5_000L
     }
 }

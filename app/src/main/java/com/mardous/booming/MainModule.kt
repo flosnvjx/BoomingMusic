@@ -373,7 +373,7 @@ private val viewModule = module {
     }
 
     viewModel {
-        InfoViewModel(repository = get())
+        InfoViewModel(repository = get(), externalSongRepository = get())
     }
 
     viewModel {
