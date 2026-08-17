@@ -277,7 +277,7 @@ class InfoViewModel(
      * recorded on the [Song]. Returns null when neither is available so the row is
      * hidden instead of showing a misleading 0.
      */
-    private fun externalSongFileSize(context: Context, uri: Uri, recordedSize: Long): String? {
+    private suspend fun externalSongFileSize(context: Context, uri: Uri, recordedSize: Long): String? {
         val liveSize = runCatching {
             withTimeout(EXTERNAL_SIZE_QUERY_TIMEOUT_MS) {
                 context.contentResolver
