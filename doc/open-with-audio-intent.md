@@ -13,8 +13,8 @@ queue and now-playing UI, and show up in the notification. External files are
 session-only: the queue entry is not restored after an app restart, and MediaStore-backed
 features (history, play counts, scrobbling, ReplayGain, artwork) are skipped for them.
 
-> **Source snapshot:** behavior verified against the current working tree (post `aaf9c1ec`,
-> 2026-08-16). All code references are `file:line` in `app/src/main/java/`.
+> **Source snapshot:** behavior verified against the current working tree (post `e8c69487`,
+> 2026-08-17). All code references are `file:line` in `app/src/main/java/`.
 
 ---
 
@@ -44,21 +44,21 @@ There is no `ACTION_SEND` / "send to queue" / "play now" audio handling; the
 ## 2. URI resolution pipeline
 
 `handleIntent` → `repository.songsByUri(uri)` (`LibraryViewModel.kt:539-547`) →
-`RealSongRepository.songsByUri` (`data/local/repository/SongRepository.kt:110-165`):
+`RealSongRepository.songsByUri` (`data/local/repository/SongRepository.kt:115-171`):
 
-1. `content://media/...` → parse trailing `_ID` → MediaStore query (`SongRepository.kt:115-119`).
+1. `content://media/...` → parse trailing `_ID` → MediaStore query (`SongRepository.kt:120-125`).
 2. **Any other authority (DocumentsProviders):**
-   - API 29+: `MediaStore.getMediaUri(context, uri)` → MediaStore row (`SongRepository.kt:126-128`).
+   - API 29+: `MediaStore.getMediaUri(context, uri)` → MediaStore row (`SongRepository.kt:129-135`).
    - API 26–28: only `com.android.providers.media.documents` via
-     `DocumentsContract.getDocumentId` (`SongRepository.kt:131-136`).
+     `DocumentsContract.getDocumentId` (`SongRepository.kt:136-142`).
    - `getMediaUri` returns `null` for providers MediaStore cannot map (cloud, OTG);
-     exceptions are swallowed and logged (`SongRepository.kt:139-141`).
-3. `file://` → MediaStore query by `DATA = path` (`SongRepository.kt:144-148`).
-4. Fallback for `content://` (`SongRepository.kt:152-159`): query the **incoming URI
+     exceptions are swallowed and logged (`SongRepository.kt:144-146`).
+3. `file://` → MediaStore query by `DATA = path` (`SongRepository.kt:149-155`).
+4. Fallback for `content://` (`SongRepository.kt:157-164`): query the **incoming URI
    itself** for `OpenableColumns.DISPLAY_NAME` + `SIZE`
-   (`getDisplayNameAndSize`, `SongRepository.kt:326-344`) and search MediaStore for an
-   exact display-name+size match (`findSongFromFileProviderUri`, `SongRepository.kt:344-352`).
-5. **External fallback** (`SongRepository.kt:408-453`): if steps 1–4 produce no
+   (`getDisplayNameAndSize`, `SongRepository.kt:347-363`) and search MediaStore for an
+   exact display-name+size match (`findSongFromFileProviderUri`, `SongRepository.kt:376-385`).
+5. **External fallback** (`SongRepository.kt:427-472`): if steps 1–4 produce no
    MediaStore row (unmapped DocumentsProvider, non-indexed `file://`, name+size miss),
    `externalSongFromUri(uri)` builds an **external song** from the raw URI — see §4.
    It is fully `runCatching`-guarded; if even the URI cannot be inspected it returns
@@ -97,7 +97,7 @@ When set, `Song.uri` returns the raw content URI instead of the MediaStore URI (
   artwork to resolve).
 - MediaStore song: as before, `content://media/external/audio/media/<id>` mediaId.
 
-`externalSongFromUri` (`SongRepository.kt:408-453`) builds the external song with:
+`externalSongFromUri` (`SongRepository.kt:427-472`) builds the external song with:
 
 - `id = externalSongId(canonicalUri)` — derived from the **canonicalized** URI
   (`asExternalIdentityUri`, tree form → document form) via the same negative-band
@@ -106,7 +106,7 @@ When set, `Song.uri` returns the raw content URI instead of the MediaStore URI (
   key, never for MediaStore lookups.
 - `title` from `OpenableColumns.DISPLAY_NAME` (extension stripped) with an optional
   in-place `MediaMetadataRetriever` probe (`probeExternalMetadata`,
-  `SongRepository.kt:463-487`) for real title/artist/album/duration; `data = ""`,
+  `SongRepository.kt:482-506`) for real title/artist/album/duration; `data = ""`,
   all other MediaStore fields `-1`/empty.
 - `ExpandedSong` forwards `externalUri` through both constructors
   (`data/model/ExpandedSong.kt:26,43,72`).
@@ -118,13 +118,13 @@ session, which serializes `MediaItem`s over the connection. **Neither the `Song`
 `localConfiguration` survive that hop** — only the `mediaId` does. All resolution below
 therefore keys on the URI-as-mediaId:
 
-- `RealSongRepository.songsByMediaItems` (`SongRepository.kt:168-213`): for each item,
+- `RealSongRepository.songsByMediaItems` (`SongRepository.kt:173-230`): for each item,
   resolves in order — `localConfiguration.tag` as a `Song`, then `externalUriOf(item)`
   (surviving `localConfiguration.uri` or `mediaId` parsed as an external content/file
-  URI, `SongRepository.kt:361-378`), then the MediaStore `_ID` query. Order-preserving.
+  URI, `SongRepository.kt:393-398`), then the MediaStore `_ID` query. Order-preserving.
   This stops `PlayerViewModel.onGenerateQueue` (`PlayerViewModel.kt:233-264`) from
   reporting the external item as "missing" and removing it from the timeline.
-- `RealSongRepository.songByMediaItem` (`SongRepository.kt:214-234`): same order —
+- `RealSongRepository.songByMediaItem` (`SongRepository.kt:232-255`): same order —
   tag → external URI → MediaStore `_ID`. This is what now-playing UI and
   `PlaybackService.onMediaItemTransition` use to recover the real external song.
 - `LibraryProvider.getMediaItemsForPlayback` (`playback/library/LibraryProvider.kt:32-85`):
@@ -135,9 +135,9 @@ therefore keys on the URI-as-mediaId:
   which cannot resolve them (`LibraryProvider.kt:46-60`).
 - **Caching:** external resolution queries the provider and reads metadata, and queue
   generation re-resolves on every media event, so results are cached per URI in a
-  session-scoped, bounded LRU (`SongRepository.kt:73-79`, max 64 entries,
-  `MAX_EXTERNAL_SONG_CACHE_SIZE` at `:494`). Both successes and failures are cached so
-  an unresolvable URI is not re-probed (`externalSong`, `SongRepository.kt:380-395`).
+  session-scoped, bounded LRU (`SongRepository.kt:78-83`, max 64 entries,
+  `MAX_EXTERNAL_SONG_CACHE_SIZE` at `:546`). Both successes and failures are cached so
+  an unresolvable URI is not re-probed (`externalSong`, `SongRepository.kt:406-414`).
 
 ## 6. Playback side effects & guards
 
@@ -146,12 +146,14 @@ MediaStore-dependent features for external songs:
 
 - **Session-only external songs** (`isSessionOnlyExternal`, transient ACTION_VIEW
   grant): no history upsert, no now-playing/scrobbling, and ReplayGain is reset to
-  `null` so the previous track's gain does not leak onto them (`:729-731`).
+  `null` so the previous track's gain does not leak onto them (`PlaybackService.kt:736-737`).
 - **Imported external songs** (file picker, persistable grant): ReplayGain is applied
-  from their tags like any other file (`:733`); history and now-playing stay
-  MediaStore-only, and scrobbling stays MediaStore-only (`:753-758`).
+  from their tags like any other file, and the cache-miss taglib read is reused to
+  refresh the Room row's tags — see §10 "Metadata freshness"
+  (`PlaybackService.kt:738-759`); history and now-playing stay MediaStore-only, and
+  scrobbling stays MediaStore-only (`:760-772`).
 - The previous-song guard (play-count/skip-count) excludes only session-only external
-  songs (`:749`).
+  songs (`:779`).
 
 The notification and widgets need no special handling: they render from
 `MediaItem.mediaMetadata`, which survives bundling and carries the probed
@@ -265,6 +267,41 @@ URI), imported songs survive restarts and behave like first-class library entrie
   Removing an import purges its stats row (`remove`/`pruneUnreadable` →
   `PlayCountDao.deleteByExternalUri(s)`). Scrobbling (Last.fm/ListenBrainz) and
   history stay MediaStore-only.
+- **Metadata freshness (reconcile):** opening an imported song's details
+  (`ui/screen/info/InfoViewModel.kt` `refreshSongInfo`, `:85`) already reads the file
+  with taglib for display; that read is reused — the ReplayGain LRU cache is warmed
+  from the same tags (`ReplayGainTagExtractor.cacheReplayGain`,
+  `data/local/ReplayGainTagExtractor.kt:56`), the Room row is reconciled via
+  `ExternalSongRepository.refreshMetadata` (`ExternalSongRepository.kt:191-221`), and
+  the details sheet's size/mtime rows update live from the fresh values. The reconcile
+  writes back the freshly-read tag fields (title/artist/album/albumArtist/genre/track,
+  recomputing the album id when the album/album-artist pair changed) plus the
+  provider-reported size (`OpenableColumns.SIZE`) and last-modified time
+  (`DocumentsContract.Document.COLUMN_LAST_MODIFIED` or `DATE_MODIFIED`, both
+  normalized to seconds by `ExternalFileMetadata.lastModifiedSeconds`,
+  `data/local/repository/ExternalFileMetadata.kt:59`); **duration is deliberately
+  excluded** — taglib cannot reliably determine it for every file, so the import-time
+  value is kept, and blank tag fields keep stored values (`applyTags`,
+  `ExternalSongRepository.kt:231-256`). The provider queries are bounded by a 5 s
+  timeout (`METADATA_REFRESH_TIMEOUT_MS`, `ExternalSongRepository.kt:292`) and the
+  reconcile runs in the details screen's coroutine, so closing the sheet cancels it
+  and no stale write lands. For **display**, imported songs show the Room-recorded
+  size immediately and session-only songs query the provider directly
+  (`InfoViewModel.externalSongFileSize`, `:274-297`) — the size row hides instead of
+  showing a misleading 0 when neither is available.
+- **Playback tag refresh:** when playback starts a song whose ReplayGain is not yet in
+  the LRU, the cache-miss taglib read — which would happen anyway — also runs a
+  tags-only `ExternalSongRepository.refreshTags` (`ExternalSongRepository.kt:222-228`)
+  for imported external songs: a pure Room write with no provider IO, which stays with
+  the Song Details reconcile. Repeat plays hit the ReplayGain cache and add no IO at
+  all (`ReplayGainTagExtractor.isCached`, `PlaybackService.kt:744-758`).
+- **Atomic reconcile:** both refresh paths re-read the row, compare it against the
+  freshly-built entity, and insert inside a single `database.withTransaction`
+  (`ExternalSongRepository.kt:206-218`), so the check-and-write is one atomic unit
+  serialized against every other `external_songs` writer (add/remove/prune) — a
+  concurrent remove cannot slip between the check and the insert and be resurrected.
+  When no field differs the row is not written at all (structural-equality guard,
+  `upsertIfChanged`, `ExternalSongRepository.kt:258-265`).
 - **Playlists & Favorites:** `SongEntity` gained an `external_uri` column (DB v6), so
   imported songs round-trip through user playlists and Favorites and play via the
   external `toMediaItem` path. Session-only external songs are **gated from these
