@@ -19,6 +19,8 @@ package com.mardous.booming.data.local.repository
 
 import android.content.ContentResolver
 import android.content.Context
+import androidx.room.withTransaction
+import com.mardous.booming.core.BoomingDatabase
 import com.mardous.booming.data.local.MetadataReader
 import com.mardous.booming.data.local.room.ExternalSongDao
 import com.mardous.booming.data.local.room.ExternalSongEntity
@@ -136,6 +138,7 @@ interface ExternalSongRepository {
 
 class RealExternalSongRepository(
     private val context: Context,
+    private val database: BoomingDatabase,
     private val dao: ExternalSongDao,
     private val playlistDao: PlaylistDao,
     private val playCountDao: PlayCountDao
@@ -191,7 +194,8 @@ class RealExternalSongRepository(
                 // Canonicalize tree-form URIs (ACTION_VIEW on tree-based providers) to
                 // the document form the picker stored, matching songByUri(). Provider
                 // queries below use the raw uri — the persistable grant covers it.
-                val entity = dao.byUri(uri.asExternalIdentityUri()) ?: return@withTimeout null
+                // Fast-path: skip the provider round-trip when the row is already gone.
+                if (dao.byUri(uri.asExternalIdentityUri()) == null) return@withTimeout null
                 ensureActive()
                 val size = ExternalFileMetadata.size(context.contentResolver, uri.toUri())
                 val lastModified =
@@ -199,21 +203,28 @@ class RealExternalSongRepository(
                 // The blocking provider calls above cannot be aborted mid-flight, but a
                 // cancellation (sheet closed) or timeout must never produce a stale write.
                 ensureActive()
-                upsertIfChanged(
-                    uri,
-                    entity,
-                    applyTags(entity, tags).copy(
-                        size = size?.takeIf { it > 0 } ?: entity.size,
-                        dateModified = lastModified ?: entity.dateModified
+                database.withTransaction {
+                    // Re-read inside the transaction so the compare base and the write are
+                    // one atomic unit, serialized against every other external_songs writer
+                    // (a concurrent remove cannot slip between the check and the insert).
+                    val entity = dao.byUri(uri.asExternalIdentityUri()) ?: return@withTransaction null
+                    upsertIfChanged(
+                        entity,
+                        applyTags(entity, tags).copy(
+                            size = size?.takeIf { it > 0 } ?: entity.size,
+                            dateModified = lastModified ?: entity.dateModified
+                        )
                     )
-                )
+                }
             }
         }
 
     override suspend fun refreshTags(uri: String, tags: ExternalSongTags): ExternalSongEntity? =
         withContext(Dispatchers.IO) {
-            val entity = dao.byUri(uri.asExternalIdentityUri()) ?: return@withContext null
-            upsertIfChanged(uri, entity, applyTags(entity, tags))
+            database.withTransaction {
+                val entity = dao.byUri(uri.asExternalIdentityUri()) ?: return@withTransaction null
+                upsertIfChanged(entity, applyTags(entity, tags))
+            }
         }
 
     /** Applies the freshly-read tag fields to a stored row; blank fields keep stored values. */
@@ -240,17 +251,15 @@ class RealExternalSongRepository(
     }
 
     /**
-     * Writes [updated] only when it differs from [entity] and the row still exists (it may
-     * have been removed while we were reading, so the upsert must not resurrect a deleted
-     * song). Returns the written row, or null when nothing changed.
+     * Writes [updated] only when it differs from [entity]. Must be called inside a
+     * [androidx.room.withTransaction] block so the compare and the insert are one atomic
+     * unit; returns the written row, or null when nothing changed.
      */
     private suspend fun upsertIfChanged(
-        uri: String,
         entity: ExternalSongEntity,
         updated: ExternalSongEntity
     ): ExternalSongEntity? {
         if (updated == entity) return null
-        if (dao.byUri(uri.asExternalIdentityUri()) == null) return null
         dao.insert(updated)
         return updated
     }

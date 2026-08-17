@@ -219,6 +219,7 @@ private val dataModule = module {
     single {
         RealExternalSongRepository(
             context = get(),
+            database = get(),
             dao = get(),
             playlistDao = get(),
             playCountDao = get()
