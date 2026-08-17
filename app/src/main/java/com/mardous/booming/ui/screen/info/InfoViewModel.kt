@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.liveData
 import androidx.lifecycle.viewModelScope
 import com.mardous.booming.data.local.MetadataReader
+import com.mardous.booming.data.local.ReplayGainTagExtractor
 import com.mardous.booming.data.local.repository.ExternalSongRepository
 import com.mardous.booming.data.local.repository.ExternalSongTags
 import com.mardous.booming.data.local.repository.Repository
@@ -94,9 +95,13 @@ class InfoViewModel(
             val dateModified = song.dateModified.format(context)
             val year = if (song.year > 0) song.year.toString() else null
             val trackLength = song.songDurationStr()
-            val replayGain = song.replayGainStr(context)
 
             val metadataReader = MetadataReader(song.uri)
+
+            // Reuse this same taglib read to warm the ReplayGain cache: playback and the
+            // ReplayGain row below then hit the cache instead of re-reading the file.
+            ReplayGainTagExtractor.cacheReplayGain(song, metadataReader.all())
+            val replayGain = song.replayGainStr(context)
 
             // External songs have no local path (data == ""), so a File-based size
             // would always read 0. Imported ones show the Room-recorded size right

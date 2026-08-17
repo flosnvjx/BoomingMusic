@@ -41,22 +41,21 @@ object ReplayGainTagExtractor {
         var gainValues = cache.get(song.uri)
         if (gainValues == null) {
             val metadataReader = MetadataReader(song.uri)
-            val rawTags = metadataReader.all()
-
-            val gainTags = parseStandardTags(rawTags)
-                .plus(parseItunesTags(rawTags))
-                .plus(parseOpusR128(rawTags))
-
-            gainValues = ReplayGain(
-                albumGain = gainTags[TAG_ALBUM_GAIN] ?: 0f,
-                trackGain = gainTags[TAG_TRACK_GAIN] ?: 0f,
-                albumPeak = gainTags[TAG_ALBUM_PEAK] ?: 1f,
-                trackPeak = gainTags[TAG_TRACK_PEAK] ?: 1f
-            )
-
+            gainValues = parse(metadataReader.all())
             cache.put(song.uri, gainValues)
         }
         return gainValues
+    }
+
+    /**
+     * Caches the ReplayGain parsed from an already-performed taglib read (e.g. the one
+     * Song Details does for its metadata section), so playback and the ReplayGain row hit
+     * the cache instead of re-reading the file. No-op when the song is already cached or
+     * when it is the empty sentinel.
+     */
+    fun cacheReplayGain(song: Song, rawTags: Map<String, Array<String>>) {
+        if (song == Song.emptySong || cache.get(song.uri) != null) return
+        cache.put(song.uri, parse(rawTags))
     }
 
     fun removeFromCache(uri: Uri) {
@@ -65,6 +64,19 @@ object ReplayGainTagExtractor {
 
     fun clearCache() {
         cache.evictAll()
+    }
+
+    private fun parse(rawTags: Map<String, Array<String>>): ReplayGain {
+        val gainTags = parseStandardTags(rawTags)
+            .plus(parseItunesTags(rawTags))
+            .plus(parseOpusR128(rawTags))
+
+        return ReplayGain(
+            albumGain = gainTags[TAG_ALBUM_GAIN] ?: 0f,
+            trackGain = gainTags[TAG_TRACK_GAIN] ?: 0f,
+            albumPeak = gainTags[TAG_ALBUM_PEAK] ?: 1f,
+            trackPeak = gainTags[TAG_TRACK_PEAK] ?: 1f
+        )
     }
 
     private fun parseStandardTags(tags: Map<String, Array<String>>): Map<String, Float> {
