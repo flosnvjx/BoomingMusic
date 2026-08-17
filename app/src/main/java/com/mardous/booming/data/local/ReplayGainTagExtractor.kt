@@ -62,6 +62,9 @@ object ReplayGainTagExtractor {
         cache.remove(uri)
     }
 
+    /** True when a ReplayGain value for this song is already cached (no taglib read needed). */
+    fun isCached(song: Song): Boolean = song != Song.emptySong && cache.get(song.uri) != null
+
     fun clearCache() {
         cache.evictAll()
     }

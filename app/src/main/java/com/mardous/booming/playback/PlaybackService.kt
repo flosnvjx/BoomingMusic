@@ -76,13 +76,17 @@ import com.mardous.booming.core.audio.AudioOutputObserver
 import com.mardous.booming.core.model.player.MetadataField
 import com.mardous.booming.core.palette.PaletteProcessor
 import com.mardous.booming.data.local.MediaStoreObserver
+import com.mardous.booming.data.local.MetadataReader
 import com.mardous.booming.data.local.ReplayGainTagExtractor
+import com.mardous.booming.data.local.repository.ExternalSongRepository
 import com.mardous.booming.data.local.repository.Repository
+import com.mardous.booming.data.local.repository.toExternalSongTags
 import com.mardous.booming.data.model.Song
 import com.mardous.booming.data.model.network.NetworkFeature
 import com.mardous.booming.data.model.network.ScrobblingService
 import com.mardous.booming.extensions.isBluetoothA2dpConnected
 import com.mardous.booming.extensions.isBluetoothA2dpDisconnected
+import com.mardous.booming.extensions.media.isImportedExternal
 import com.mardous.booming.extensions.media.isSessionOnlyExternal
 import com.mardous.booming.extensions.showToast
 import com.mardous.booming.playback.equalizer.EqualizerManager
@@ -111,6 +115,7 @@ import com.mardous.booming.util.WIDGET_DYNAMIC_COLORS
 import com.mardous.booming.util.WIDGET_IMAGE_CORNER_RADIUS
 import com.mardous.booming.util.WIDGET_SMALL_LAYOUT_STYLE
 import com.mardous.booming.util.WIDGET_THIRD_LINE_CONTENT
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.Dispatchers.Main
@@ -141,6 +146,7 @@ class PlaybackService :
     private val equalizerManager: EqualizerManager by inject()
     private val audioOutputObserver: AudioOutputObserver by inject()
     private val repository: Repository by inject()
+    private val externalSongRepository: ExternalSongRepository by inject()
 
     private val libraryProvider = LibraryProvider(repository)
     private val songPlayCountHelper = SongPlayCountHelper()
@@ -730,6 +736,26 @@ class PlaybackService :
             if (newSong.isSessionOnlyExternal) {
                 replayGainProcessor.currentGain = null
             } else if (newSong != Song.emptySong) {
+                // On a ReplayGain cache miss this taglib read is happening anyway, so
+                // reuse it: warm the ReplayGain cache and, for imported external songs,
+                // refresh the Room row's tags from the same read (pure Room write — no
+                // provider IO, which stays with the Song Details reconcile). Repeat
+                // plays hit the cache and skip both.
+                if (!ReplayGainTagExtractor.isCached(newSong)) {
+                    val metadataReader = MetadataReader(newSong.uri)
+                    ReplayGainTagExtractor.cacheReplayGain(newSong, metadataReader.all())
+                    if (newSong.isImportedExternal) {
+                        val externalUri = newSong.externalUri
+                        if (externalUri != null) {
+                            launch {
+                                runCatching {
+                                    externalSongRepository.refreshTags(
+                                        externalUri, metadataReader.toExternalSongTags())
+                                }.onFailure { if (it is CancellationException) throw it }
+                            }
+                        }
+                    }
+                }
                 replayGainProcessor.currentGain = ReplayGainTagExtractor.getReplayGain(newSong)
                 // History and now-playing stay MediaStore-only: external songs have no
                 // MediaStore identity for Last.fm/ListenBrainz to resolve.

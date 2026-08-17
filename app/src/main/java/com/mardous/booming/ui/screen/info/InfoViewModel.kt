@@ -12,6 +12,7 @@ import com.mardous.booming.data.local.ReplayGainTagExtractor
 import com.mardous.booming.data.local.repository.ExternalSongRepository
 import com.mardous.booming.data.local.repository.ExternalSongTags
 import com.mardous.booming.data.local.repository.Repository
+import com.mardous.booming.data.local.repository.toExternalSongTags
 import com.mardous.booming.data.mapper.toPlayCount
 import com.mardous.booming.data.model.Album
 import com.mardous.booming.data.model.Artist
@@ -181,15 +182,7 @@ class InfoViewModel(
                     genre = genre,
                     replayGain = replayGain,
                     comment = comment
-                ) to ExternalSongTags(
-                    title = title,
-                    artist = artist,
-                    album = album,
-                    albumArtist = albumArtist,
-                    genre = genre,
-                    // Match the session probe's parsing of composed track fields (e.g. "3/12").
-                    track = trackNumberRaw?.substringBefore('/')?.trim()?.toIntOrNull()
-                )
+                ) to metadataReader.toExternalSongTags()
             }
         }.onFailure { if (it is CancellationException) throw it }
 

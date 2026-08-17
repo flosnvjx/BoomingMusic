@@ -19,6 +19,7 @@ package com.mardous.booming.data.local.repository
 
 import android.content.ContentResolver
 import android.content.Context
+import com.mardous.booming.data.local.MetadataReader
 import com.mardous.booming.data.local.room.ExternalSongDao
 import com.mardous.booming.data.local.room.ExternalSongEntity
 import com.mardous.booming.data.local.room.PlayCountDao
@@ -63,6 +64,22 @@ data class ExternalSongTags(
     val track: Int? = null
 )
 
+/**
+ * Builds the tag fields for an imported external song's metadata refresh from a
+ * freshly-performed taglib read (the same read Song Details uses for display and
+ * ReplayGain extraction). Matches the session probe's parsing of composed track
+ * fields (e.g. "3/12"). Missing fields come back null so the refresh keeps the
+ * stored values.
+ */
+fun MetadataReader.toExternalSongTags(): ExternalSongTags = ExternalSongTags(
+    title = first(MetadataReader.TITLE),
+    artist = merge(MetadataReader.ARTIST),
+    album = first(MetadataReader.ALBUM),
+    albumArtist = first(MetadataReader.ALBUM_ARTIST),
+    genre = merge(MetadataReader.GENRE),
+    track = value(MetadataReader.TRACK_NUMBER)?.substringBefore('/')?.trim()?.toIntOrNull()
+)
+
 interface ExternalSongRepository {
 
     suspend fun all(): List<Song>
@@ -100,6 +117,15 @@ interface ExternalSongRepository {
      * updated row, or null when the song is no longer imported or nothing changed.
      */
     suspend fun refreshMetadata(uri: String, tags: ExternalSongTags): ExternalSongEntity?
+
+    /**
+     * Tags-only variant of [refreshMetadata]: upserts the freshly-read tag fields
+     * (title/artist/album/albumArtist/genre/track, recomputing the album id when the
+     * album names changed) without any provider IO. Used by the playback path, which
+     * already performed the taglib read for ReplayGain and reuses it here; size and
+     * last-modified are left to [refreshMetadata] (Song Details).
+     */
+    suspend fun refreshTags(uri: String, tags: ExternalSongTags): ExternalSongEntity?
 
     /**
      * Removes stored songs whose URI can no longer be read (e.g. an unplugged OTG
@@ -173,41 +199,61 @@ class RealExternalSongRepository(
                 // The blocking provider calls above cannot be aborted mid-flight, but a
                 // cancellation (sheet closed) or timeout must never produce a stale write.
                 ensureActive()
-                val newAlbum = tags.album?.takeIf { it.isNotBlank() } ?: entity.album
-                val newAlbumArtist = tags.albumArtist?.takeIf { it.isNotBlank() } ?: entity.albumArtist
-                val updated = entity.copy(
-                    title = tags.title?.takeIf { it.isNotBlank() } ?: entity.title,
-                    artist = tags.artist?.takeIf { it.isNotBlank() } ?: entity.artist,
-                    album = newAlbum,
-                    albumArtist = newAlbumArtist,
-                    genre = tags.genre?.takeIf { it.isNotBlank() } ?: entity.genre,
-                    // Duration is deliberately not refreshed: taglib cannot reliably
-                    // determine it for every file, so the import-time value is kept.
-                    track = tags.track ?: entity.track,
-                    // albumId is derived from the album/album-artist names — recompute it
-                    // whenever that pair changed, or the row would land under a stale id.
-                    albumId = if (newAlbum != entity.album || newAlbumArtist != entity.albumArtist) {
-                        externalAlbumId(newAlbum, newAlbumArtist)
-                    } else {
-                        entity.albumId
-                    },
-                    size = size?.takeIf { it > 0 } ?: entity.size,
-                    dateModified = lastModified ?: entity.dateModified
+                upsertIfChanged(
+                    uri,
+                    entity,
+                    applyTags(entity, tags).copy(
+                        size = size?.takeIf { it > 0 } ?: entity.size,
+                        dateModified = lastModified ?: entity.dateModified
+                    )
                 )
-                if (updated == entity) {
-                    null
-                } else {
-                    // The row may have been removed while we were querying the provider;
-                    // re-check so the upsert does not resurrect a deleted song.
-                    if (dao.byUri(uri.asExternalIdentityUri()) == null) {
-                        null
-                    } else {
-                        dao.insert(updated)
-                        updated
-                    }
-                }
             }
         }
+
+    override suspend fun refreshTags(uri: String, tags: ExternalSongTags): ExternalSongEntity? =
+        withContext(Dispatchers.IO) {
+            val entity = dao.byUri(uri.asExternalIdentityUri()) ?: return@withContext null
+            upsertIfChanged(uri, entity, applyTags(entity, tags))
+        }
+
+    /** Applies the freshly-read tag fields to a stored row; blank fields keep stored values. */
+    private fun applyTags(entity: ExternalSongEntity, tags: ExternalSongTags): ExternalSongEntity {
+        val newAlbum = tags.album?.takeIf { it.isNotBlank() } ?: entity.album
+        val newAlbumArtist = tags.albumArtist?.takeIf { it.isNotBlank() } ?: entity.albumArtist
+        return entity.copy(
+            title = tags.title?.takeIf { it.isNotBlank() } ?: entity.title,
+            artist = tags.artist?.takeIf { it.isNotBlank() } ?: entity.artist,
+            album = newAlbum,
+            albumArtist = newAlbumArtist,
+            genre = tags.genre?.takeIf { it.isNotBlank() } ?: entity.genre,
+            // Duration is deliberately not refreshed: taglib cannot reliably
+            // determine it for every file, so the import-time value is kept.
+            track = tags.track ?: entity.track,
+            // albumId is derived from the album/album-artist names — recompute it
+            // whenever that pair changed, or the row would land under a stale id.
+            albumId = if (newAlbum != entity.album || newAlbumArtist != entity.albumArtist) {
+                externalAlbumId(newAlbum, newAlbumArtist)
+            } else {
+                entity.albumId
+            }
+        )
+    }
+
+    /**
+     * Writes [updated] only when it differs from [entity] and the row still exists (it may
+     * have been removed while we were reading, so the upsert must not resurrect a deleted
+     * song). Returns the written row, or null when nothing changed.
+     */
+    private suspend fun upsertIfChanged(
+        uri: String,
+        entity: ExternalSongEntity,
+        updated: ExternalSongEntity
+    ): ExternalSongEntity? {
+        if (updated == entity) return null
+        if (dao.byUri(uri.asExternalIdentityUri()) == null) return null
+        dao.insert(updated)
+        return updated
+    }
 
     override suspend fun pruneUnreadable(): List<String> = withContext(Dispatchers.IO) {
         // One cheap IPC: the app's persisted URI grants. A content URI without a grant can
