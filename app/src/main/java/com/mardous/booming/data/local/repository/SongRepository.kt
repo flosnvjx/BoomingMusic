@@ -32,6 +32,7 @@ import android.util.Log
 import androidx.media3.common.MediaItem
 import com.mardous.booming.core.sort.SongSortMode
 import com.mardous.booming.data.local.MediaQueryDispatcher
+import com.mardous.booming.data.local.MetadataReader
 import com.mardous.booming.data.local.room.InclExclDao
 import com.mardous.booming.data.local.room.InclExclEntity
 import com.mardous.booming.data.model.Album
@@ -448,6 +449,13 @@ class RealSongRepository(
             ?: display
 
         val metadata = probeExternalMetadata(uri)
+        // The album/album-artist pair feeds the derived album id, and the first-play
+        // reconcile (PlaybackService.onMediaItemTransition -> refreshTags) recomputes
+        // that id from the same taglib read — so the import probe must agree with it,
+        // or playing a song silently moves it to a new album id and splits its album
+        // across two entries in the Albums tab. Defensive: a taglib failure falls back
+        // to the MediaMetadataRetriever probe values, keeping the song playable.
+        val tags = runCatching { MetadataReader(uri).toExternalSongTags() }.getOrNull()
         Song(
             // Same synthetic derivation as the import path, so a session-only and an
             // imported song for the same file share an identity (and stay in the
@@ -462,10 +470,10 @@ class RealSongRepository(
             dateAdded = -1L,
             rawDateModified = getLastModifiedSeconds(uri) ?: -1L,
             albumId = -1L,
-            albumName = metadata?.album.orEmpty(),
+            albumName = tags?.album?.takeIf { it.isNotBlank() } ?: metadata?.album.orEmpty(),
             artistId = -1L,
             artistName = metadata?.artist.orEmpty(),
-            albumArtistName = null,
+            albumArtistName = tags?.albumArtist?.takeIf { it.isNotBlank() },
             genreName = null,
             externalUri = uri.toString()
         )
