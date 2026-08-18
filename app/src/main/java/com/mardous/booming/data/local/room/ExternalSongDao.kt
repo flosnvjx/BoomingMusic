@@ -39,10 +39,11 @@ interface ExternalSongDao {
      * [all] has no ORDER BY, so the Songs tab's DateAdded sort (second-precision
      * `date_added` ties) exposes that mutable physical order as the tie-break.
      * Updating in place keeps the rowid — and the display order — stable across
-     * reconciles.
+     * reconciles. Returns the number of rows updated (0 when the row vanished
+     * mid-transaction), which the repository uses to treat the write as a no-op.
      */
     @Update
-    suspend fun update(song: ExternalSongEntity)
+    suspend fun update(song: ExternalSongEntity): Int
 
     @Query("SELECT * FROM external_songs")
     suspend fun all(): List<ExternalSongEntity>
