@@ -449,12 +449,12 @@ class RealSongRepository(
             ?: display
 
         val metadata = probeExternalMetadata(uri)
-        // The album/album-artist pair feeds the derived album id, and the first-play
-        // reconcile (PlaybackService.onMediaItemTransition -> refreshTags) recomputes
-        // that id from the same taglib read — so the import probe must agree with it,
-        // or playing a song silently moves it to a new album id and splits its album
-        // across two entries in the Albums tab. Genre is taken from the same read for
-        // the same reason (the retriever probe exposes neither album artist nor genre).
+        // The first-play reconcile (PlaybackService.onMediaItemTransition -> refreshTags)
+        // rewrites the stored row from this same taglib read, so every tag field the
+        // import stores must come from it too — otherwise an untouched file still gets a
+        // one-time Room write on first play, and (for the album/album-artist pair) the
+        // derived album id would move, splitting the album in the Albums tab. Only
+        // duration keeps the retriever probe value: taglib cannot reliably determine it.
         // Defensive: a taglib failure falls back to the MediaMetadataRetriever probe
         // values, keeping the song playable.
         val tags = runCatching { MetadataReader(uri).toExternalSongTags() }.getOrNull()
@@ -464,8 +464,8 @@ class RealSongRepository(
             // negative band, disjoint from MediaStore ids).
             id = externalSongId(canonicalUri.toString()),
             data = "",
-            title = metadata?.title ?: fallbackTitle,
-            trackNumber = metadata?.trackNumber ?: -1,
+            title = tags?.title?.takeIf { it.isNotBlank() } ?: metadata?.title ?: fallbackTitle,
+            trackNumber = tags?.track ?: metadata?.trackNumber ?: -1,
             year = -1,
             size = contentInfo?.second ?: -1L,
             duration = metadata?.duration ?: -1L,
@@ -474,7 +474,7 @@ class RealSongRepository(
             albumId = -1L,
             albumName = tags?.album?.takeIf { it.isNotBlank() } ?: metadata?.album.orEmpty(),
             artistId = -1L,
-            artistName = metadata?.artist.orEmpty(),
+            artistName = tags?.artist?.takeIf { it.isNotBlank() } ?: metadata?.artist.orEmpty(),
             albumArtistName = tags?.albumArtist?.takeIf { it.isNotBlank() },
             genreName = tags?.genre?.takeIf { it.isNotBlank() },
             externalUri = uri.toString()

@@ -104,16 +104,16 @@ When set, `Song.uri` returns the raw content URI instead of the MediaStore URI (
   formula the import path uses (`-(EXTERNAL_ID_BASE + hash)`), so a session-only open
   and an imported song for the same file share one identity; used only as an identity
   key, never for MediaStore lookups.
-- `title` from `OpenableColumns.DISPLAY_NAME` (extension stripped) with an optional
+- `title` from `OpenableColumns.DISPLAY_NAME` (extension stripped), upgraded by an
   in-place `MediaMetadataRetriever` probe (`probeExternalMetadata`,
-  `SongRepository.kt:482-506`) for real title/artist/album/duration; `data = ""`,
-  all other MediaStore fields `-1`/empty.
-- `album`/`albumArtist`/`genre` prefer the same defensive taglib read the reconcile
-  uses (`MetadataReader(uri).toExternalSongTags()`, falling back to the retriever
-  probe), so the album id derived at import (`externalAlbumId(album, albumArtist)`)
-  matches the one the first-play reconcile recomputes — otherwise played and
-  unplayed songs of one album land under different ids and the album splits in the
-  Albums tab.
+  `SongRepository.kt:482-506`) for duration and as fallback; `data = ""`, all other
+  MediaStore fields `-1`/empty.
+- `title`/`artist`/`album`/`albumArtist`/`genre`/`track` all come from the same
+  defensive taglib read the reconcile uses (`MetadataReader(uri).toExternalSongTags()`,
+  falling back to the retriever probe values), so the album id derived at import
+  (`externalAlbumId(album, albumArtist)`) matches the one the first-play reconcile
+  recomputes — otherwise played and unplayed songs of one album land under
+  different ids and the album splits in the Albums tab.
 - `ExpandedSong` forwards `externalUri` through both constructors
   (`data/model/ExpandedSong.kt:26,43,72`).
 
