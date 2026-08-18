@@ -90,6 +90,12 @@ interface ExternalSongRepository {
 
     suspend fun albums(): List<Album>
 
+    /**
+     * Searches imported external albums by album name or album artist, mirroring the
+     * MediaStore album search (`ALBUM LIKE ? OR ALBUM_ARTIST LIKE ?`).
+     */
+    suspend fun searchAlbums(query: String): List<Album>
+
     suspend fun albumSongs(albumId: Long): List<Song>
 
     /**
@@ -165,6 +171,13 @@ class RealExternalSongRepository(
                     songs = songs
                 )
             }
+    }
+
+    override suspend fun searchAlbums(query: String): List<Album> = withContext(Dispatchers.IO) {
+        albums().filter { album ->
+            album.name.contains(query, ignoreCase = true) ||
+                album.albumArtistName?.contains(query, ignoreCase = true) == true
+        }
     }
 
     override suspend fun albumSongs(albumId: Long): List<Song> = withContext(Dispatchers.IO) {

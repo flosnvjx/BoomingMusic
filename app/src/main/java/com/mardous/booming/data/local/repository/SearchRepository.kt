@@ -115,7 +115,8 @@ class RealSearchRepository(
 
     private suspend fun getSongs(query: String) =
         songRepository.songs(query) + externalSongRepository.search(query)
-    private fun getAlbums(query: String) = albumRepository.albums(query)
+    private suspend fun getAlbums(query: String) =
+        albumRepository.albums(query) + externalSongRepository.searchAlbums(query)
     private fun getArtists(query: String, isOnlyAlbumArtists: Boolean) =
         if (isOnlyAlbumArtists)
             artistRepository.albumArtists(query)
