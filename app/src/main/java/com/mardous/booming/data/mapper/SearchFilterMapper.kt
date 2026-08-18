@@ -4,6 +4,7 @@ import android.content.Context
 import android.provider.MediaStore
 import com.mardous.booming.R
 import com.mardous.booming.data.SearchFilter
+import com.mardous.booming.data.local.repository.EXTERNAL_ID_BASE
 import com.mardous.booming.data.local.room.PlaylistEntity
 import com.mardous.booming.data.local.search.BasicSearchFilter
 import com.mardous.booming.data.local.search.LastAddedSearchFilter
@@ -13,16 +14,27 @@ import com.mardous.booming.data.model.search.FilterSelection
 import com.mardous.booming.data.model.search.SearchQuery
 import com.mardous.booming.extensions.media.displayName
 
-fun Album.searchFilter(context: Context) =
-    SmartSearchFilter(
-        context.getString(R.string.search_album_x_label, name), null,
-        FilterSelection(
-            SearchQuery.FilterMode.Songs,
-            MediaStore.Audio.AudioColumns.TITLE,
-            MediaStore.Audio.AudioColumns.ALBUM_ID + "=?",
-            id.toString()
+fun Album.searchFilter(context: Context): SearchFilter =
+    if (id <= -EXTERNAL_ID_BASE) {
+        // Imported external albums use synthetic ids in this reserved negative band and
+        // live in Room (`external_songs`), which MediaStore knows nothing about. Route
+        // their in-album search through the external store (see SearchRepository.searchAlbumSongs);
+        // MediaStore albums keep the SmartSearchFilter path below.
+        BasicSearchFilter(
+            context.getString(R.string.search_album_x_label, name),
+            BasicSearchFilter.Argument(id, BasicSearchFilter.Argument.ALBUM)
         )
-    )
+    } else {
+        SmartSearchFilter(
+            context.getString(R.string.search_album_x_label, name), null,
+            FilterSelection(
+                SearchQuery.FilterMode.Songs,
+                MediaStore.Audio.AudioColumns.TITLE,
+                MediaStore.Audio.AudioColumns.ALBUM_ID + "=?",
+                id.toString()
+            )
+        )
+    }
 
 fun Artist.searchFilter(context: Context): SmartSearchFilter {
     return if (isAlbumArtist) {

@@ -70,6 +70,10 @@ class BasicSearchFilter<T : Serializable>(private val name: String, private val 
                 val playlistId = argument.value as? Long ?: return emptyList()
                 searchRepository.searchPlaylistSongs(playlistId, query)
             }
+            Argument.ALBUM -> {
+                val albumId = argument.value as? Long ?: return emptyList()
+                searchRepository.searchAlbumSongs(albumId, query)
+            }
             else -> arrayListOf()
         }
         return if (searchMode == FilterMode.Albums) {
@@ -84,6 +88,7 @@ class BasicSearchFilter<T : Serializable>(private val name: String, private val 
             const val GENRE = 2
             const val PLAYLIST = 3
             const val FOLDER = 4
+            const val ALBUM = 5
         }
     }
 }

@@ -253,7 +253,8 @@ private val dataModule = module {
             artistRepository = get(),
             playlistRepository = get(),
             genreRepository = get(),
-            specialRepository = get()
+            specialRepository = get(),
+            externalSongRepository = get()
         )
     } bind SearchRepository::class
 

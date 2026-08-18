@@ -31,6 +31,14 @@ interface SearchRepository {
     suspend fun searchPlaylistSongs(playlistId: Long, query: String): List<Song>
     suspend fun searchYearSongs(year: Int, query: String): List<Song>
     suspend fun searchFolderSongs(folderPath: String, query: String): List<Song>
+
+    /**
+     * Searches the songs of an album by title. For imported external albums (synthetic
+     * negative ids in the reserved band) the search runs against the Room `external_songs`
+     * store; MediaStore albums never reach this method (their scoped search goes through
+     * `SmartSearchFilter`).
+     */
+    suspend fun searchAlbumSongs(albumId: Long, query: String): List<Song>
 }
 
 class RealSearchRepository(
@@ -39,7 +47,8 @@ class RealSearchRepository(
     private val artistRepository: RealArtistRepository,
     private val playlistRepository: RealPlaylistRepository,
     private val genreRepository: GenreRepository,
-    private val specialRepository: SpecialRepository
+    private val specialRepository: SpecialRepository,
+    private val externalSongRepository: ExternalSongRepository
 ) : SearchRepository {
 
     override suspend fun searchAll(context: Context, query: SearchQuery, filter: SearchFilter?): List<Any> {
@@ -91,7 +100,21 @@ class RealSearchRepository(
     override suspend fun searchFolderSongs(folderPath: String, query: String): List<Song> =
         specialRepository.songsByFolder(folderPath, query)
 
-    private fun getSongs(query: String) = songRepository.songs(query)
+    override suspend fun searchAlbumSongs(albumId: Long, query: String): List<Song> =
+        if (albumId <= -EXTERNAL_ID_BASE) {
+            // Imported external albums use synthetic ids in this reserved negative band
+            // and live in Room, so their in-album search must run against `external_songs`
+            // (MediaStore returns nothing for these ids). Mirrors the MediaStore album
+            // search, which matches song titles only.
+            externalSongRepository.albumSongs(albumId).filter { song ->
+                song.title.contains(query, ignoreCase = true)
+            }
+        } else {
+            emptyList()
+        }
+
+    private suspend fun getSongs(query: String) =
+        songRepository.songs(query) + externalSongRepository.search(query)
     private fun getAlbums(query: String) = albumRepository.albums(query)
     private fun getArtists(query: String, isOnlyAlbumArtists: Boolean) =
         if (isOnlyAlbumArtists)
