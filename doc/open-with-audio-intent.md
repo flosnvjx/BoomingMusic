@@ -309,12 +309,17 @@ URI), imported songs survive restarts and behave like first-class library entrie
   the Song Details reconcile. Repeat plays hit the ReplayGain cache and add no IO at
   all (`ReplayGainTagExtractor.isCached`, `PlaybackService.kt:744-758`).
 - **Atomic reconcile:** both refresh paths re-read the row, compare it against the
-  freshly-built entity, and insert inside a single `database.withTransaction`
-  (`ExternalSongRepository.kt:206-218`), so the check-and-write is one atomic unit
-  serialized against every other `external_songs` writer (add/remove/prune) — a
-  concurrent remove cannot slip between the check and the insert and be resurrected.
-  When no field differs the row is not written at all (structural-equality guard,
-  `upsertIfChanged`, `ExternalSongRepository.kt:258-265`).
+  freshly-built entity, and update it in place inside a single
+  `database.withTransaction` (`ExternalSongRepository.kt:219-232`), so the
+  check-and-write is one atomic unit serialized against every other `external_songs`
+  writer (add/remove/prune) — a concurrent remove cannot slip between the check and
+  the write and be resurrected. The write is an `@Update` (`ExternalSongDao.update`),
+  not `INSERT OR REPLACE`: REPLACE is DELETE + INSERT, which would move the row to
+  the table tail and churn rowids, and `dao.all()` has a deterministic
+  `ORDER BY date_added, uri` — together they keep the tie order of same-second
+  imports stable in the Songs tab's DateAdded sort. When no field differs the row is
+  not written at all (structural-equality guard, `upsertIfChanged`,
+  `ExternalSongRepository.kt:267-281`).
 - **Playlists & Favorites:** `SongEntity` gained an `external_uri` column (DB v6), so
   imported songs round-trip through user playlists and Favorites and play via the
   external `toMediaItem` path. Session-only external songs are **gated from these

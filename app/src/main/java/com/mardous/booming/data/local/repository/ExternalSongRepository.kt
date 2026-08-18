@@ -265,15 +265,19 @@ class RealExternalSongRepository(
 
     /**
      * Writes [updated] only when it differs from [entity]. Must be called inside a
-     * [androidx.room.withTransaction] block so the compare and the insert are one atomic
-     * unit; returns the written row, or null when nothing changed.
+     * [androidx.room.withTransaction] block so the compare and the write are one atomic
+     * unit; returns the written row, or null when nothing changed (or the row vanished
+     * mid-transaction, in which case the update is a no-op).
      */
     private suspend fun upsertIfChanged(
         entity: ExternalSongEntity,
         updated: ExternalSongEntity
     ): ExternalSongEntity? {
         if (updated == entity) return null
-        dao.insert(updated)
+        // In-place @Update, not INSERT OR REPLACE (see ExternalSongDao.update): a
+        // REPLACE would DELETE+INSERT, churning the rowid (re-appending the row to
+        // the table tail) and re-ordering any unordered external_songs read.
+        if (dao.update(updated) == 0) return null
         return updated
     }
 

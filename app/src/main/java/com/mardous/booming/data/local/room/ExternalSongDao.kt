@@ -21,6 +21,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 
 @Dao
 interface ExternalSongDao {
@@ -31,7 +32,19 @@ interface ExternalSongDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(songs: List<ExternalSongEntity>)
 
-    @Query("SELECT * FROM external_songs")
+    /**
+     * In-place update used by the metadata reconcile paths (refreshTags/refreshMetadata).
+     * Deliberately an `@Update` rather than `INSERT OR REPLACE`: REPLACE is DELETE +
+     * INSERT, which churns the rowid so the row re-appends to the table tail (re-ordering
+     * every query without an ORDER BY, and needlessly rewriting the row). [all] pins the
+     * Songs tab's DateAdded tie-break with `ORDER BY date_added, uri`; updating in place
+     * additionally keeps all other unordered `external_songs` reads stable across
+     * reconciles.
+     */
+    @Update
+    suspend fun update(song: ExternalSongEntity)
+
+    @Query("SELECT * FROM external_songs ORDER BY date_added, uri")
     suspend fun all(): List<ExternalSongEntity>
 
     @Query("SELECT * FROM external_songs WHERE uri = :uri LIMIT 1")
