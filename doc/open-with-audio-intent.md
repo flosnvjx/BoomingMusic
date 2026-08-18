@@ -13,8 +13,8 @@ queue and now-playing UI, and show up in the notification. External files are
 session-only: the queue entry is not restored after an app restart, and MediaStore-backed
 features (history, play counts, scrobbling, ReplayGain, artwork) are skipped for them.
 
-> **Source snapshot:** behavior verified against the current working tree (post `e8c69487`,
-> 2026-08-17). All code references are `file:line` in `app/src/main/java/`.
+> **Source snapshot:** behavior verified against the current working tree (post `512f2311`,
+> 2026-08-18). All code references are `file:line` in `app/src/main/java/`.
 
 ---
 
@@ -248,14 +248,27 @@ URI), imported songs survive restarts and behave like first-class library entrie
   millis, or `MediaStore.MediaColumns.DATE_MODIFIED`, seconds — normalized to
   seconds) by `RealSongRepository.getLastModifiedSeconds`, falling back to `-1`
   when the provider does not expose it.
-- **Library integration:** merged into `Repository.allSongs()` / `searchSongs()`
-  (Songs tab + search) and `allAlbums()` / `albumById()` (Albums tab + Go-to-album
-  detail) — `data/local/repository/Repository.kt`. `allAlbums()` sorts the merged
-  list with the active `AlbumSortMode`, so imported albums interleave with MediaStore
-  ones under every sort (name/date/count, asc/desc). `albumById` routes ids
-  `≤ -EXTERNAL_ID_BASE` to the external store (falling back to MediaStore when the
-  Room store has no songs). Artists, genres, years, folders, Home lists and
-  History stay MediaStore-only.
+- **Library integration:** merged into `Repository.allSongs()` (Songs tab),
+  `allAlbums()` / `albumById()` (Albums tab + Go-to-album detail) —
+  `data/local/repository/Repository.kt` — and into search via `RealSearchRepository`
+  (`data/local/repository/SearchRepository.kt`): the generic Songs search (Songs tab +
+  all-mode "Songs" section) merges `ExternalSongRepository.search(q)`
+  (title/artist/album LIKE), the generic Albums search (Albums tab + all-mode "Albums"
+  section) merges `ExternalSongRepository.searchAlbums(q)` (album name or album artist,
+  mirroring MediaStore's `ALBUM LIKE ? OR ALBUM_ARTIST LIKE ?`), and the album-view
+  scoped search routes external albums (ids `≤ -EXTERNAL_ID_BASE`) through
+  `Album.searchFilter` → `BasicSearchFilter(ALBUM)` → `SearchRepository.searchAlbumSongs`
+  (in-album title match, like the MediaStore in-album search). Playlist search already
+  matched external members via their Room `SongEntity` rows, and
+  `Repository.searchSongs()` (LibraryProvider / Android Auto) merges external songs
+  too. `allAlbums()` sorts the merged list with the active `AlbumSortMode`, so
+  imported albums interleave with MediaStore ones under every sort
+  (name/date/count, asc/desc). `albumById` routes ids `≤ -EXTERNAL_ID_BASE` to the
+  external store (falling back to MediaStore when the Room store has no songs).
+  Artists, genres, years, folders, Home lists and History stay MediaStore-only — the
+  artist search merge is a designed seam (`ExternalSongRepository.searchArtists`) to
+  build together with external artist indexing, honoring `onlyAlbumArtists` /
+  `minimumSongCountForArtist` and only after the Artists tab lists merge them.
 - **Play statistics:** imported external songs now record play count, skip count and
   last played like MediaStore songs — `PlaybackService.onMediaItemTransition` gates
   stats on `!isSessionOnlyExternal` (so ACTION_VIEW session-only plays still write
