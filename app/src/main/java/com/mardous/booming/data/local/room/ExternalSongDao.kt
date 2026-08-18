@@ -35,16 +35,16 @@ interface ExternalSongDao {
     /**
      * In-place update used by the metadata reconcile paths (refreshTags/refreshMetadata).
      * Deliberately an `@Update` rather than `INSERT OR REPLACE`: REPLACE is DELETE +
-     * INSERT, which churns the rowid so the row re-appends to the table tail (re-ordering
-     * every query without an ORDER BY, and needlessly rewriting the row). [all] pins the
-     * Songs tab's DateAdded tie-break with `ORDER BY date_added, uri`; updating in place
-     * additionally keeps all other unordered `external_songs` reads stable across
+     * INSERT, which churns the rowid so the row re-appends to the table tail — and
+     * [all] has no ORDER BY, so the Songs tab's DateAdded sort (second-precision
+     * `date_added` ties) exposes that mutable physical order as the tie-break.
+     * Updating in place keeps the rowid — and the display order — stable across
      * reconciles.
      */
     @Update
     suspend fun update(song: ExternalSongEntity)
 
-    @Query("SELECT * FROM external_songs ORDER BY date_added, uri")
+    @Query("SELECT * FROM external_songs")
     suspend fun all(): List<ExternalSongEntity>
 
     @Query("SELECT * FROM external_songs WHERE uri = :uri LIMIT 1")

@@ -321,11 +321,11 @@ URI), imported songs survive restarts and behave like first-class library entrie
   writer (add/remove/prune) — a concurrent remove cannot slip between the check and
   the write and be resurrected. The write is an `@Update` (`ExternalSongDao.update`),
   not `INSERT OR REPLACE`: REPLACE is DELETE + INSERT, which would move the row to
-  the table tail and churn rowids, and `dao.all()` has a deterministic
-  `ORDER BY date_added, uri` — together they keep the tie order of same-second
-  imports stable in the Songs tab's DateAdded sort. When no field differs the row is
-  not written at all (structural-equality guard, `upsertIfChanged`,
-  `ExternalSongRepository.kt:267-281`).
+  the table tail and churn rowids — and `dao.all()` has no ORDER BY, so the Songs
+  tab's DateAdded sort (second-precision `date_added` ties) exposes that physical
+  order as the tie-break. Updating in place keeps the tie order of same-second
+  imports stable. When no field differs the row is not written at all
+  (structural-equality guard, `upsertIfChanged`, `ExternalSongRepository.kt:267-281`).
 - **Playlists & Favorites:** `SongEntity` gained an `external_uri` column (DB v6), so
   imported songs round-trip through user playlists and Favorites and play via the
   external `toMediaItem` path. Session-only external songs are **gated from these
