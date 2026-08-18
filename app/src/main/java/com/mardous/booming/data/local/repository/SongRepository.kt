@@ -453,8 +453,10 @@ class RealSongRepository(
         // reconcile (PlaybackService.onMediaItemTransition -> refreshTags) recomputes
         // that id from the same taglib read — so the import probe must agree with it,
         // or playing a song silently moves it to a new album id and splits its album
-        // across two entries in the Albums tab. Defensive: a taglib failure falls back
-        // to the MediaMetadataRetriever probe values, keeping the song playable.
+        // across two entries in the Albums tab. Genre is taken from the same read for
+        // the same reason (the retriever probe exposes neither album artist nor genre).
+        // Defensive: a taglib failure falls back to the MediaMetadataRetriever probe
+        // values, keeping the song playable.
         val tags = runCatching { MetadataReader(uri).toExternalSongTags() }.getOrNull()
         Song(
             // Same synthetic derivation as the import path, so a session-only and an
@@ -474,7 +476,7 @@ class RealSongRepository(
             artistId = -1L,
             artistName = metadata?.artist.orEmpty(),
             albumArtistName = tags?.albumArtist?.takeIf { it.isNotBlank() },
-            genreName = null,
+            genreName = tags?.genre?.takeIf { it.isNotBlank() },
             externalUri = uri.toString()
         )
     }.getOrDefault(Song.emptySong)
